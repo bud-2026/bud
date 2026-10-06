@@ -151,7 +151,11 @@ function parseScreenResponse(content: string): ScreenAIResponse {
         typeof point.x === 'number' &&
         typeof point.y === 'number' &&
         Number.isFinite(point.x) &&
-        Number.isFinite(point.y)
+        Number.isFinite(point.y) &&
+        point.x >= 0 &&
+        point.x <= 100 &&
+        point.y >= 0 &&
+        point.y <= 100
     )
   })
 
@@ -254,7 +258,7 @@ async function askAboutScreen(prompt: string): Promise<ScreenAIResponse> {
       {
         role: 'system',
         content:
-          'Analyze the screenshot. Return only valid JSON matching this schema. Coordinates must be the percentage relative to the screenshot top-left corner. Use an empty boxes array when there are no matching objects. ' +
+          'Analyze the screenshot. Return only valid JSON matching this schema. Coordinates must be percentages from 0 to 100 relative to the screenshot dimensions, where (0, 0) is the top-left and (100, 100) is the bottom-right. Use an empty boxes array when there are no matching objects. ' +
           screenResponseSchema
       },
       {

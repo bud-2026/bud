@@ -52,12 +52,6 @@ function App(): React.JSX.Element {
         {result && <p className="question-panel__response">{result.text}</p>}
         {error && <p className="question-panel__error">{error}</p>}
       </form>
-      <Indicator
-          key={`122`}
-          topLeft={{x: 576, y: 378}}
-          bottomRight={{x: 892, y: 531}}
-          label="Test"
-      />
       {result?.boxes.map((box, index) => (
         <Indicator
           key={`${box.topLeft.x}-${box.topLeft.y}-${index}`}

@@ -2,6 +2,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 
 declare global {
   interface BoundingBox {
+    /** Percentage coordinates from 0 to 100 relative to the screen. */
     topLeft: { x: number; y: number }
     bottomRight: { x: number; y: number }
     label?: string
