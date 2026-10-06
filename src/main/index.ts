@@ -4,10 +4,17 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
 function createWindow(): void {
-  // Create the browser window.
+  // Create a transparent overlay that covers the current display.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    fullscreen: true,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    hasShadow: false,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -16,6 +23,13 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  // Use the highest Electron stacking level so the overlay remains above
+  // fullscreen applications and regular always-on-top windows.
+  mainWindow.setAlwaysOnTop(true, 'screen-saver')
+
+  // Let mouse and touch events pass through to the application below the overlay.
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
