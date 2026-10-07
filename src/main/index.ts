@@ -21,12 +21,14 @@ dotenv.config({ path: join(app.getAppPath(), '.env') })
 const ttsPort = Number(process.env.TTS_BACKEND_PORT ?? 8765)
 const ttsBaseUrl = process.env.TTS_BACKEND_URL ?? `http://127.0.0.1:${ttsPort}`
 let ttsProcess: ChildProcess | undefined
+let voiceProcess: ChildProcess | undefined
 
 function startTTSBackend(): void {
   const backendDirectory = join(app.getAppPath(), 'backend')
-  const venvPython = join(backendDirectory, '.venv', 'Scripts', 'python.exe')
+  const ttsDirectory = join(app.getAppPath(), 'backend', 'tts')
+  const venvPython = join(ttsDirectory, '.venv', 'Scripts', 'python.exe')
   const pythonExecutable = existsSync(venvPython) ? venvPython : 'python'
-  const backendScript = join(backendDirectory, 'main.py')
+  const backendScript = join(ttsDirectory, 'main.py')
 
   if (!existsSync(backendScript)) {
     console.error(`TTS backend script not found: ${backendScript}`)
@@ -53,6 +55,58 @@ function stopTTSBackend(): void {
   }
 }
 
+function startVoiceBackend(mainWindow: BrowserWindow): void {
+  const backendDirectory = join(app.getAppPath(), 'backend', 'stt')
+  const venvPython = join(backendDirectory, '.venv', 'Scripts', 'python.exe')
+  const pythonExecutable = existsSync(venvPython) ? venvPython : 'python'
+  const backendScript = join(backendDirectory, 'main.py')
+
+  if (!existsSync(backendScript)) {
+    console.error(`Voice backend script not found: ${backendScript}`)
+    return
+  }
+
+  voiceProcess = spawn(pythonExecutable, [backendScript], {
+    cwd: backendDirectory,
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'inherit'],
+    windowsHide: true
+  })
+
+  let pending = ''
+  voiceProcess.stdout?.on('data', (chunk: Buffer) => {
+    pending += chunk.toString()
+    const lines = pending.split(/\r?\n/)
+    pending = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try {
+        mainWindow.webContents.send('voice:event', JSON.parse(line))
+      } catch {
+        console.error('Voice backend returned invalid event:', line)
+      }
+    }
+  })
+  voiceProcess.on('error', (error) => {
+    console.error('Voice backend failed to start:', error)
+    mainWindow.webContents.send('voice:event', {
+      event: 'error',
+      message: error.message
+    })
+  })
+  voiceProcess.on('exit', (code, signal) => {
+    console.log(`Voice backend exited (code=${code}, signal=${signal ?? 'none'})`)
+    voiceProcess = undefined
+  })
+}
+
+function stopVoiceBackend(): void {
+  if (voiceProcess && !voiceProcess.killed) {
+    voiceProcess.kill()
+    voiceProcess = undefined
+  }
+}
+
 function createWindow(): void {
   // Create a transparent overlay that covers the current display.
   const mainWindow = new BrowserWindow({
@@ -73,6 +127,9 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  // Keep the overlay visible locally without including it in supported screen captures.
+  mainWindow.setContentProtection(true)
 
   // Use the highest Electron stacking level so the overlay remains above
   // fullscreen applications and regular always-on-top windows.
@@ -455,6 +512,10 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  const mainWindow = BrowserWindow.getAllWindows()[0]
+  if (mainWindow) {
+    mainWindow.webContents.once('did-finish-load', () => startVoiceBackend(mainWindow))
+  }
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
@@ -475,6 +536,7 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopTTSBackend()
+  stopVoiceBackend()
 })
 
 // In this file you can include the rest of your app's specific main process

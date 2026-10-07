@@ -1,4 +1,5 @@
 node_modules
+backend/**/.venv
 .env
 .env.*
 !.env.example

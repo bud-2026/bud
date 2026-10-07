@@ -28,6 +28,25 @@ declare global {
       onEnd: (callback: (requestId: string) => void) => () => void
       onError: (callback: (message: string) => void) => () => void
     }
+    voice: {
+      onEvent: (
+        callback: (event: {
+          event:
+            | 'ready'
+            | 'listening'
+            | 'wake_detected'
+            | 'transcribing'
+            | 'transcript'
+            | 'final'
+            | 'status'
+            | 'error'
+          text?: string
+          final?: boolean
+          message?: string
+          wake_word?: string
+        }) => void
+      ) => () => void
+    }
   }
 
   interface Window {

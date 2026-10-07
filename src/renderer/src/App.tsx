@@ -12,10 +12,55 @@ function App(): React.JSX.Element {
   const [isOverlayFocused, setIsOverlayFocused] = useState(true)
   const [isDebugOpen, setIsDebugOpen] = useState(true)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [voiceStatus, setVoiceStatus] = useState('Starting voice listener...')
+  const [voiceTranscript, setVoiceTranscript] = useState('')
   const audioContextRef = useRef<AudioContext | null>(null)
   const nextAudioTimeRef = useRef<number>(0)
 
   useEffect(() => window.api.overlay.onFocusChanged(setIsOverlayFocused), [])
+  useEffect(
+    () =>
+      window.api.voice.onEvent((event) => {
+        if (event.event === 'error') {
+          setVoiceStatus('Voice error')
+          setError(event.message ?? 'Voice listener failed')
+          return
+        }
+        if (event.event === 'status') {
+          setVoiceStatus(event.message ?? 'Preparing voice listener...')
+          return
+        }
+
+        if (event.event === 'transcript' && event.text) {
+          setVoiceTranscript(event.text)
+        }
+        if (event.event === 'final' && event.text) {
+          setVoiceTranscript(event.text)
+          setQuestion(event.text)
+          setVoiceStatus('Analyzing voice question...')
+          setIsLoading(true)
+          setError(null)
+          void askScreen(event.text)
+            .then(setResult)
+            .catch((requestError: unknown) => {
+              setError(
+                requestError instanceof Error ? requestError.message : 'Screen analysis failed'
+              )
+            })
+            .finally(() => setIsLoading(false))
+          return
+        }
+
+        const statuses: Record<string, string> = {
+          ready: `Voice listener ready · say “${event.wake_word ?? 'hey bud'}”`,
+          listening: `Listening for “${event.wake_word ?? 'hey bud'}”`,
+          wake_detected: 'Wake word detected',
+          transcribing: 'Listening for your question...'
+        }
+        setVoiceStatus(statuses[event.event] ?? event.event)
+      }),
+    []
+  )
   useEffect(() => {
     const unsubscribeStart = window.api.tts.onStart(({ sampleRate }) => {
       audioContextRef.current ??= new AudioContext({ sampleRate })
@@ -116,6 +161,7 @@ function App(): React.JSX.Element {
                   {isOverlayFocused ? 'unfocus' : 'focus'}
                 </span>
               </label>
+              <p className="question-panel__voice-status">{voiceStatus}</p>
               <div className="question-panel__controls">
                 <input
                   id="screen-question"
@@ -129,6 +175,9 @@ function App(): React.JSX.Element {
                 </button>
               </div>
               {result && <p className="question-panel__response">{result.text}</p>}
+              {voiceTranscript && (
+                <p className="question-panel__transcript">Heard: {voiceTranscript}</p>
+              )}
             </form>
             <form className="question-panel" onSubmit={handleTtsSubmit}>
               <label htmlFor="tts-text">Test text-to-speech</label>

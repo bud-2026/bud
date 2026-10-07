@@ -20,6 +20,22 @@ interface TTSChunkEvent {
   chunk: Uint8Array
 }
 
+interface VoiceEvent {
+  event:
+    | 'ready'
+    | 'listening'
+    | 'wake_detected'
+    | 'transcribing'
+    | 'transcript'
+    | 'final'
+    | 'status'
+    | 'error'
+  text?: string
+  final?: boolean
+  message?: string
+  wake_word?: string
+}
+
 // Custom APIs for renderer
 const api = {
   ai: {
@@ -62,6 +78,13 @@ const api = {
         callback(data.message)
       ipcRenderer.on('tts:error', listener)
       return () => ipcRenderer.removeListener('tts:error', listener)
+    }
+  },
+  voice: {
+    onEvent: (callback: (event: VoiceEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: VoiceEvent): void => callback(data)
+      ipcRenderer.on('voice:event', listener)
+      return () => ipcRenderer.removeListener('voice:event', listener)
     }
   }
 }
