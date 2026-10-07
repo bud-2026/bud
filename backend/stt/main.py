@@ -61,13 +61,13 @@ def run() -> None:
         emit("error", message=f"STT dependency is missing: {error}")
         return
 
-    silence_timeout = float(os.environ.get("STT_SILENCE_TIMEOUT", "2.5"))
+    silence_timeout = float(os.environ.get("STT_SILENCE_TIMEOUT", "1.5"))
     minimum_transcription_time = float(
         os.environ.get("STT_MIN_TRANSCRIPTION_SECONDS", "1.5")
     )
     wake_threshold = float(os.environ.get("WAKEWORD_THRESHOLD", "0.85"))
     wake_confirmation_frames = int(
-        os.environ.get("WAKEWORD_CONFIRMATION_FRAMES", "4")
+        os.environ.get("WAKEWORD_CONFIRMATION_FRAMES", "5")
     )
     language = os.environ.get("MOONSHINE_LANGUAGE", "en")
     latest_text = ""
@@ -102,6 +102,8 @@ def run() -> None:
                         break
             finally:
                 recorder.stop()
+
+            time.sleep(0.15)
 
             emit("wake_detected")
             latest_text = ""

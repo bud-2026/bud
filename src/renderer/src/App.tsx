@@ -10,8 +10,7 @@ function App(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(false)
   const [isTtsLoading, setIsTtsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isOverlayFocused, setIsOverlayFocused] = useState(true)
-  const [isDebugOpen, setIsDebugOpen] = useState(true)
+  const [isDebugOpen, setIsDebugOpen] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState('Starting voice listener...')
   const [voiceTranscript, setVoiceTranscript] = useState('')
@@ -23,16 +22,26 @@ function App(): React.JSX.Element {
   const isLoadingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const orbHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const boxesClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingBoxClearRef = useRef(false)
 
   const setOrbState = (state: 'hidden' | 'listening' | 'analyzing' | 'responding'): void => {
     voiceOrbStateRef.current = state
     if (state !== 'hidden') setIsOrbExiting(false)
     setVoiceOrbState(state)
   }
+  const scheduleBoundingBoxClear = (): void => {
+    if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
+    boxesClearTimerRef.current = setTimeout(() => {
+      setResult((currentResult) =>
+        currentResult ? { ...currentResult, boxes: [] } : currentResult
+      )
+    }, 2000)
+  }
   const audioContextRef = useRef<AudioContext | null>(null)
   const nextAudioTimeRef = useRef<number>(0)
 
-  useEffect(() => window.api.overlay.onFocusChanged(setIsOverlayFocused), [])
+  useEffect(() => window.api.overlay.onDebugVisibilityChanged(setIsDebugOpen), [])
   useEffect(
     () =>
       window.api.voice.onEvent((event) => {
@@ -59,10 +68,12 @@ function App(): React.JSX.Element {
           setVoiceStatus('Analyzing voice question...')
           setIsLoading(true)
           isLoadingRef.current = true
+          pendingBoxClearRef.current = true
           setError(null)
           void askScreen(event.text)
             .then(setResult)
             .catch((requestError: unknown) => {
+              pendingBoxClearRef.current = false
               setError(
                 requestError instanceof Error ? requestError.message : 'Screen analysis failed'
               )
@@ -123,6 +134,10 @@ function App(): React.JSX.Element {
         : 0
 
       orbHideTimerRef.current = setTimeout(() => {
+        if (pendingBoxClearRef.current) {
+          scheduleBoundingBoxClear()
+          pendingBoxClearRef.current = false
+        }
         setIsSpeaking(false)
         isSpeakingRef.current = false
         setIsOrbExiting(true)
@@ -133,6 +148,10 @@ function App(): React.JSX.Element {
       }, remainingAudioMs)
     })
     const unsubscribeError = window.api.tts.onError((message) => {
+      if (pendingBoxClearRef.current) {
+        scheduleBoundingBoxClear()
+        pendingBoxClearRef.current = false
+      }
       setIsSpeaking(false)
       isSpeakingRef.current = false
       setOrbState('hidden')
@@ -145,6 +164,7 @@ function App(): React.JSX.Element {
       unsubscribeEnd()
       unsubscribeError()
       if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
+      if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
       void audioContextRef.current?.close()
     }
   }, [])
@@ -159,9 +179,13 @@ function App(): React.JSX.Element {
     isLoadingRef.current = true
     setOrbState('analyzing')
     setError(null)
+    if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
+    pendingBoxClearRef.current = true
     try {
-      setResult(await askScreen(prompt))
+      const screenResponse = await askScreen(prompt)
+      setResult(screenResponse)
     } catch (requestError) {
+      pendingBoxClearRef.current = false
       setError(requestError instanceof Error ? requestError.message : 'Screen analysis failed')
     } finally {
       setIsLoading(false)
@@ -187,75 +211,69 @@ function App(): React.JSX.Element {
   }
 
   const clearBoundingBoxes = (): void => {
+    if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
+    pendingBoxClearRef.current = false
     setResult((currentResult) => (currentResult ? { ...currentResult, boxes: [] } : currentResult))
   }
 
   return (
     <main className="overlay" aria-label="Screen overlay">
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
-      <section className={`debug-panel${isDebugOpen ? '' : ' debug-panel--collapsed'}`}>
-        <button
-          className="debug-panel__toggle"
-          type="button"
-          onClick={() => setIsDebugOpen((open) => !open)}
-          aria-expanded={isDebugOpen}
-        >
-          {isDebugOpen ? 'Hide debug' : 'Show debug'}
-        </button>
-        {isDebugOpen && (
-          <div className="debug-panel__content">
-            <form className="question-panel" onSubmit={handleSubmit}>
-              <label htmlFor="screen-question">
-                Ask about your screen
-                <span className="question-panel__shortcut">
-                  {isSpeaking ? 'Speaking · ' : ''}Ctrl+Shift+Space to{' '}
-                  {isOverlayFocused ? 'unfocus' : 'focus'}
-                </span>
-              </label>
-              <p className="question-panel__voice-status">{voiceStatus}</p>
-              <div className="question-panel__controls">
-                <input
-                  id="screen-question"
-                  value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
-                  placeholder="What is on my screen?"
-                  disabled={isLoading}
-                />
-                <button type="submit" disabled={isLoading || !question.trim()}>
-                  {isLoading ? 'Analyzing...' : 'Ask'}
-                </button>
-              </div>
-              {result && <p className="question-panel__response">{result.text}</p>}
-              {voiceTranscript && (
-                <p className="question-panel__transcript">Heard: {voiceTranscript}</p>
-              )}
-            </form>
-            <form className="question-panel" onSubmit={handleTtsSubmit}>
-              <label htmlFor="tts-text">Test text-to-speech</label>
-              <div className="question-panel__controls">
-                <input
-                  id="tts-text"
-                  value={ttsText}
-                  onChange={(event) => setTtsText(event.target.value)}
-                  placeholder="Type text to speak..."
-                  disabled={isTtsLoading}
-                />
-                <button type="submit" disabled={isTtsLoading || !ttsText.trim()}>
-                  {isTtsLoading ? 'Sending...' : 'Speak'}
-                </button>
-              </div>
-            </form>
-            <button
-              className="debug-panel__clear"
-              type="button"
-              onClick={clearBoundingBoxes}
-              disabled={!result?.boxes.length}
-            >
-              Clear bounding boxes
-            </button>
-            {error && <p className="question-panel__error">{error}</p>}
-          </div>
-        )}
+      <section
+        className={`debug-panel${isDebugOpen ? ' debug-panel--open' : ''}`}
+        aria-hidden={!isDebugOpen}
+      >
+        <div className="debug-panel__content">
+          <form className="question-panel" onSubmit={handleSubmit}>
+            <label htmlFor="screen-question">
+              Ask about your screen
+              <span className="question-panel__shortcut">
+                {isSpeaking ? 'Speaking · ' : ''}Ctrl+Shift+Space to toggle debug
+              </span>
+            </label>
+            <p className="question-panel__voice-status">{voiceStatus}</p>
+            <div className="question-panel__controls">
+              <input
+                id="screen-question"
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                placeholder="What is on my screen?"
+                disabled={isLoading}
+              />
+              <button type="submit" disabled={isLoading || !question.trim()}>
+                {isLoading ? 'Analyzing...' : 'Ask'}
+              </button>
+            </div>
+            {result && <p className="question-panel__response">{result.text}</p>}
+            {voiceTranscript && (
+              <p className="question-panel__transcript">Heard: {voiceTranscript}</p>
+            )}
+          </form>
+          <form className="question-panel" onSubmit={handleTtsSubmit}>
+            <label htmlFor="tts-text">Test text-to-speech</label>
+            <div className="question-panel__controls">
+              <input
+                id="tts-text"
+                value={ttsText}
+                onChange={(event) => setTtsText(event.target.value)}
+                placeholder="Type text to speak..."
+                disabled={isTtsLoading}
+              />
+              <button type="submit" disabled={isTtsLoading || !ttsText.trim()}>
+                {isTtsLoading ? 'Sending...' : 'Speak'}
+              </button>
+            </div>
+          </form>
+          <button
+            className="debug-panel__clear"
+            type="button"
+            onClick={clearBoundingBoxes}
+            disabled={!result?.boxes.length}
+          >
+            Clear bounding boxes
+          </button>
+          {error && <p className="question-panel__error">{error}</p>}
+        </div>
       </section>
       {result?.boxes.map((box, index) => (
         <Indicator

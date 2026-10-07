@@ -135,21 +135,21 @@ function createWindow(): void {
   // fullscreen applications and regular always-on-top windows.
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
-  const setOverlayFocused = (focused: boolean): void => {
-    mainWindow.setIgnoreMouseEvents(!focused, { forward: true })
+  const setDebugVisible = (visible: boolean): void => {
+    mainWindow.setIgnoreMouseEvents(!visible, { forward: true })
 
-    if (focused) {
+    if (visible) {
       mainWindow.show()
       mainWindow.focus()
     } else {
       mainWindow.blur()
     }
 
-    mainWindow.webContents.send('overlay:focus-changed', focused)
+    mainWindow.webContents.send('overlay:debug-visibility-changed', visible)
   }
 
   mainWindow.on('ready-to-show', () => {
-    setOverlayFocused(true)
+    setDebugVisible(false)
     mainWindow.show()
   })
 
@@ -166,12 +166,14 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  const toggleOverlayFocus = (): void => {
-    setOverlayFocused(mainWindow.isFocused() === false)
+  let isDebugVisible = false
+  const toggleDebugVisibility = (): void => {
+    isDebugVisible = !isDebugVisible
+    setDebugVisible(isDebugVisible)
   }
 
-  if (!globalShortcut.register('CommandOrControl+Shift+Space', toggleOverlayFocus)) {
-    console.error('Could not register overlay focus shortcut: Ctrl+Shift+Space')
+  if (!globalShortcut.register('CommandOrControl+Shift+Space', toggleDebugVisibility)) {
+    console.error('Could not register debug visibility shortcut: Ctrl+Shift+Space')
   }
 
   mainWindow.on('closed', () => {
@@ -199,14 +201,15 @@ const systemPrompt = `
 Analyze the image. Return ONLY valid JSON matching the schema below.
 
 CRITICAL INSTRUCTIONS:
-1. "text": Provide a direct, friendly, and naturally spoken answer suited for a voice assistant (like Siri). Use complete, fluid sentences, but strictly answer only what was asked—do not add extra facts, unrequested details, or excessive commentary.
-2. "boxes": Highlight every relevant object, region, or visual element directly referenced in your spoken response.
-3. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes. Top-left is (0,0) and bottom-right is (1000,1000).
-4. DO NOT return percentages or absolute pixel dimensions.
+1. "text": Provide a direct, friendly, and naturally spoken answer suited for a voice assistant (like Siri). Use complete, fluid sentences, but strictly answer only what was asked—do not add extra facts or unrequested details.
+2. TTS PHONETIC FORMATTING: Spell out ALL numbers, dates, times, units, and symbols entirely as full words so the text-to-speech engine pronounces them correctly (e.g., write "seven fifteen p m" instead of "7:15 PM", "forty-two dollars" instead of "$42", "percent" instead of "%").
+3. "boxes": Highlight every relevant object, region, or visual element directly referenced in your spoken response.
+4. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes. Top-left is (0,0) and bottom-right is (1000,1000).
+5. DO NOT return percentages or absolute pixel dimensions for bounding box coordinates.
 
 JSON Schema:
 {
-  "text": "targeted spoken response to the user",
+  "text": "targeted spoken response spelled out phonetically for TTS",
   "boxes": [
     {
       "topLeft": { "x": 0, "y": 0 },
@@ -218,7 +221,7 @@ JSON Schema:
 
 Example Output:
 {
-  "text": "The display shows the next train leaves at 7:15 PM.",
+  "text": "The display shows the next train leaves at seven fifteen p m.",
   "boxes": [
     {
       "topLeft": { "x": 438, "y": 577 },

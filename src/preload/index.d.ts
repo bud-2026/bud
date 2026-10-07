@@ -19,7 +19,7 @@ declare global {
       askScreen: (prompt: string) => Promise<ScreenAIResponse>
     }
     overlay: {
-      onFocusChanged: (callback: (focused: boolean) => void) => () => void
+      onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
     }
     tts: {
       speak: (text: string) => Promise<void>

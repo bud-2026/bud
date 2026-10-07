@@ -45,12 +45,12 @@ const api = {
       ipcRenderer.invoke('ai:ask-screen', prompt)
   },
   overlay: {
-    onFocusChanged: (callback: (focused: boolean) => void): (() => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, focused: boolean): void => {
-        callback(focused)
+    onDebugVisibilityChanged: (callback: (visible: boolean) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => {
+        callback(visible)
       }
-      ipcRenderer.on('overlay:focus-changed', listener)
-      return () => ipcRenderer.removeListener('overlay:focus-changed', listener)
+      ipcRenderer.on('overlay:debug-visibility-changed', listener)
+      return () => ipcRenderer.removeListener('overlay:debug-visibility-changed', listener)
     }
   },
   tts: {
