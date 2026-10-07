@@ -199,14 +199,14 @@ const systemPrompt = `
 Analyze the image. Return ONLY valid JSON matching the schema below.
 
 CRITICAL INSTRUCTIONS:
-1. "text": Write in a conversational, friendly, and concise spoken style suitable for a voice assistant (like Siri). Avoid overly formal language or robotic listings—phrase it naturally as if speaking aloud to the user.
-2. "boxes": Highlight every relevant object or visual element referenced in your spoken text.
-3. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes [ymin, xmin, ymax, xmax]. Top-left is (0,0) and bottom-right is (1000,1000).
+1. "text": Provide a friendly, conversational, and naturally descriptive answer suited for a voice assistant (like Siri). Explain what you see with sufficient context rather than giving one- or two-word short answers. Speak in complete, fluid sentences as if talking aloud.
+2. "boxes": Highlight every relevant object, region, or visual element mentioned in your spoken response.
+3. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes. Top-left is (0,0) and bottom-right is (1000,1000).
 4. DO NOT return percentages or absolute pixel dimensions.
 
 JSON Schema:
 {
-  "text": "spoken response to the user",
+  "text": "descriptive spoken response to the user",
   "boxes": [
     {
       "topLeft": { "x": 0, "y": 0 },
@@ -218,12 +218,17 @@ JSON Schema:
 
 Example Output:
 {
-  "text": "It looks like the train is arriving at 7:15 PM.",
+  "text": "Sure! I found the train schedule on the screen—the next train is scheduled to leave at 7:15 PM from platform 4.",
   "boxes": [
     {
       "topLeft": { "x": 438, "y": 577 },
       "bottomRight": { "x": 663, "y": 653 },
       "label": "train departure time"
+    },
+    {
+      "topLeft": { "x": 670, "y": 577 },
+      "bottomRight": { "x": 750, "y": 653 },
+      "label": "platform number"
     }
   ]
 }
