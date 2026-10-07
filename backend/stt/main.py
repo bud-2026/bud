@@ -61,7 +61,10 @@ def run() -> None:
         emit("error", message=f"STT dependency is missing: {error}")
         return
 
-    silence_timeout = float(os.environ.get("STT_SILENCE_TIMEOUT", "1.2"))
+    silence_timeout = float(os.environ.get("STT_SILENCE_TIMEOUT", "2.5"))
+    minimum_transcription_time = float(
+        os.environ.get("STT_MIN_TRANSCRIPTION_SECONDS", "1.5")
+    )
     wake_threshold = float(os.environ.get("WAKEWORD_THRESHOLD", "0.5"))
     language = os.environ.get("MOONSHINE_LANGUAGE", "en")
     latest_text = ""
@@ -94,7 +97,8 @@ def run() -> None:
 
             emit("wake_detected")
             latest_text = ""
-            last_speech_at = time.monotonic()
+            transcription_started_at = time.monotonic()
+            last_speech_at = transcription_started_at
             stop_transcription.clear()
 
             def on_text(text: str) -> None:
@@ -125,7 +129,9 @@ def run() -> None:
             emit("transcribing")
 
             while not stop_transcription.wait(0.1):
-                if latest_text and time.monotonic() - last_speech_at >= silence_timeout:
+                now = time.monotonic()
+                can_finish = now - transcription_started_at >= minimum_transcription_time
+                if latest_text and can_finish and now - last_speech_at >= silence_timeout:
                     break
 
             transcriber.stop()

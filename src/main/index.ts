@@ -198,36 +198,37 @@ interface ScreenAIResponse {
 const systemPrompt = `
 Analyze the image. Return ONLY valid JSON matching the schema below.
 
-CRITICAL COORDINATE RULES:
-1. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes (e.g., 438, not 43.8 or 840 pixels).
-2. DO NOT return percentages or absolute pixel dimensions.
-3. Top-left corner of image is (0, 0); bottom-right corner is (1000, 1000).
+CRITICAL INSTRUCTIONS:
+1. "text": Write in a conversational, friendly, and concise spoken style suitable for a voice assistant (like Siri). Avoid overly formal language or robotic listings—phrase it naturally as if speaking aloud to the user.
+2. "boxes": Highlight every relevant object or visual element referenced in your spoken text.
+3. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes [ymin, xmin, ymax, xmax]. Top-left is (0,0) and bottom-right is (1000,1000).
+4. DO NOT return percentages or absolute pixel dimensions.
 
 JSON Schema:
 {
-  "text": "brief answer to the user",
+  "text": "spoken response to the user",
   "boxes": [
     {
       "topLeft": { "x": 0, "y": 0 },
       "bottomRight": { "x": 0, "y": 0 },
-      "label": "optional label"
+      "label": "descriptive label matching the spoken text"
     }
   ]
 }
 
 Example Output:
 {
-  "text": "19:15",
+  "text": "It looks like the train is arriving at 7:15 PM.",
   "boxes": [
     {
       "topLeft": { "x": 438, "y": 577 },
       "bottomRight": { "x": 663, "y": 653 },
-      "label": "time"
+      "label": "train departure time"
     }
   ]
 }
 
-Use an empty "boxes" array when there are no matching objects. Respond ONLY with raw JSON.
+Use an empty "boxes" array only when no relevant spatial objects are present. Respond ONLY with raw JSON.
 `
 
 function parseScreenResponse(content: string): ScreenAIResponse {
