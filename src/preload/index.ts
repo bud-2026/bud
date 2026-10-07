@@ -10,6 +10,16 @@ interface ScreenAIResponse {
   }>
 }
 
+interface TTSStartEvent {
+  requestId: string
+  sampleRate: number
+}
+
+interface TTSChunkEvent {
+  requestId: string
+  chunk: Uint8Array
+}
+
 // Custom APIs for renderer
 const api = {
   ai: {
@@ -25,6 +35,33 @@ const api = {
       }
       ipcRenderer.on('overlay:focus-changed', listener)
       return () => ipcRenderer.removeListener('overlay:focus-changed', listener)
+    }
+  },
+  tts: {
+    speak: (text: string): Promise<void> => ipcRenderer.invoke('tts:speak', text),
+    onStart: (callback: (event: TTSStartEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: TTSStartEvent): void =>
+        callback(data)
+      ipcRenderer.on('tts:start', listener)
+      return () => ipcRenderer.removeListener('tts:start', listener)
+    },
+    onChunk: (callback: (event: TTSChunkEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: TTSChunkEvent): void =>
+        callback(data)
+      ipcRenderer.on('tts:chunk', listener)
+      return () => ipcRenderer.removeListener('tts:chunk', listener)
+    },
+    onEnd: (callback: (requestId: string) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: { requestId: string }): void =>
+        callback(data.requestId)
+      ipcRenderer.on('tts:end', listener)
+      return () => ipcRenderer.removeListener('tts:end', listener)
+    },
+    onError: (callback: (message: string) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: { message: string }): void =>
+        callback(data.message)
+      ipcRenderer.on('tts:error', listener)
+      return () => ipcRenderer.removeListener('tts:error', listener)
     }
   }
 }

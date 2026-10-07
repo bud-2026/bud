@@ -7,13 +7,51 @@ import {
   ipcMain,
   screen
 } from 'electron'
+import { spawn, type ChildProcess } from 'child_process'
 import dotenv from 'dotenv'
 import OpenAI from 'openai'
+import { existsSync } from 'fs'
 import { join } from 'path'
+import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
 dotenv.config({ path: join(app.getAppPath(), '.env') })
+
+const ttsPort = Number(process.env.TTS_BACKEND_PORT ?? 8765)
+const ttsBaseUrl = process.env.TTS_BACKEND_URL ?? `http://127.0.0.1:${ttsPort}`
+let ttsProcess: ChildProcess | undefined
+
+function startTTSBackend(): void {
+  const backendDirectory = join(app.getAppPath(), 'backend')
+  const venvPython = join(backendDirectory, '.venv', 'Scripts', 'python.exe')
+  const pythonExecutable = existsSync(venvPython) ? venvPython : 'python'
+  const backendScript = join(backendDirectory, 'main.py')
+
+  if (!existsSync(backendScript)) {
+    console.error(`TTS backend script not found: ${backendScript}`)
+    return
+  }
+
+  ttsProcess = spawn(pythonExecutable, [backendScript, '--port', String(ttsPort)], {
+    cwd: backendDirectory,
+    env: process.env,
+    stdio: 'inherit',
+    windowsHide: true
+  })
+  ttsProcess.on('error', (error) => console.error('TTS backend failed to start:', error))
+  ttsProcess.on('exit', (code, signal) => {
+    console.log(`TTS backend exited (code=${code}, signal=${signal ?? 'none'})`)
+    ttsProcess = undefined
+  })
+}
+
+function stopTTSBackend(): void {
+  if (ttsProcess && !ttsProcess.killed) {
+    ttsProcess.kill()
+    ttsProcess = undefined
+  }
+}
 
 function createWindow(): void {
   // Create a transparent overlay that covers the current display.
@@ -100,7 +138,16 @@ interface ScreenAIResponse {
   boxes: BoundingBox[]
 }
 
-const screenResponseSchema = `{
+const systemPrompt = `
+Analyze the image. Return ONLY valid JSON matching the schema below.
+
+CRITICAL COORDINATE RULES:
+1. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes (e.g., 438, not 43.8 or 840 pixels).
+2. DO NOT return percentages or absolute pixel dimensions.
+3. Top-left corner of image is (0, 0); bottom-right corner is (1000, 1000).
+
+JSON Schema:
+{
   "text": "brief answer to the user",
   "boxes": [
     {
@@ -109,7 +156,22 @@ const screenResponseSchema = `{
       "label": "optional label"
     }
   ]
-}`
+}
+
+Example Output:
+{
+  "text": "19:15",
+  "boxes": [
+    {
+      "topLeft": { "x": 438, "y": 577 },
+      "bottomRight": { "x": 663, "y": 653 },
+      "label": "time"
+    }
+  ]
+}
+
+Use an empty "boxes" array when there are no matching objects. Respond ONLY with raw JSON.
+`
 
 function parseScreenResponse(content: string): ScreenAIResponse {
   const jsonContent = content
@@ -153,9 +215,9 @@ function parseScreenResponse(content: string): ScreenAIResponse {
         Number.isFinite(point.x) &&
         Number.isFinite(point.y) &&
         point.x >= 0 &&
-        point.x <= 100 &&
+        point.x <= 1000 &&
         point.y >= 0 &&
-        point.y <= 100
+        point.y <= 1000
     )
   })
 
@@ -179,7 +241,7 @@ async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
   }
 
   const client = new OpenAI({
-    baseURL: 'https://api.tokenfactory.nebius.com/v1/',
+    baseURL: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     apiKey
   })
   const response = await client.chat.completions.create({
@@ -249,7 +311,7 @@ async function askAboutScreen(prompt: string): Promise<ScreenAIResponse> {
   }
 
   const client = new OpenAI({
-    baseURL: 'https://api.tokenfactory.nebius.com/v1/',
+    baseURL: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     apiKey
   })
   const response = await client.chat.completions.create({
@@ -257,9 +319,7 @@ async function askAboutScreen(prompt: string): Promise<ScreenAIResponse> {
     messages: [
       {
         role: 'system',
-        content:
-          'Analyze the screenshot. Return only valid JSON matching this schema. Coordinates must be percentages from 0 to 100 relative to the screenshot dimensions, where (0, 0) is the top-left and (100, 100) is the bottom-right. Use an empty boxes array when there are no matching objects. ' +
-          screenResponseSchema
+        content: systemPrompt
       },
       {
         role: 'user',
@@ -279,10 +339,49 @@ async function askAboutScreen(prompt: string): Promise<ScreenAIResponse> {
   return parseScreenResponse(content)
 }
 
+async function streamTTS(text: string, webContents: Electron.WebContents): Promise<void> {
+  const requestId = randomUUID()
+  const response = await fetch(`${ttsBaseUrl}/tts-stream`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text })
+  })
+
+  if (!response.ok || !response.body) {
+    throw new Error(`TTS backend returned HTTP ${response.status}`)
+  }
+
+  const sampleRateHeader = response.headers.get('x-sample-rate')
+  const sampleRate = Number(sampleRateHeader)
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
+    throw new Error('TTS backend returned an invalid sample rate')
+  }
+
+  webContents.send('tts:start', { requestId, sampleRate })
+  const reader = response.body.getReader()
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value && value.byteLength > 0) {
+        webContents.send('tts:chunk', {
+          requestId,
+          chunk: Buffer.from(value)
+        })
+      }
+    }
+    webContents.send('tts:end', { requestId })
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  startTTSBackend()
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -317,10 +416,16 @@ app.whenReady().then(() => {
       throw new Error('AI imageUrl must be an image data URL or an HTTPS URL')
     }
 
-    return askAI({
+    const response = await askAI({
       prompt: request.prompt,
       imageUrl
     })
+    void streamTTS(response, _event.sender).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'TTS playback failed'
+      console.error(message)
+      _event.sender.send('tts:error', { message })
+    })
+    return response
   })
 
   ipcMain.handle('ai:ask-screen', async (_event, prompt: unknown) => {
@@ -328,7 +433,25 @@ app.whenReady().then(() => {
       throw new Error('Screen analysis prompt must be a non-empty string')
     }
 
-    return askAboutScreen(prompt)
+    const result = await askAboutScreen(prompt)
+    void streamTTS(result.text, _event.sender).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'TTS playback failed'
+      console.error(message)
+      _event.sender.send('tts:error', { message })
+    })
+    return result
+  })
+
+  ipcMain.handle('tts:speak', async (_event, text: unknown) => {
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      throw new Error('TTS text must be a non-empty string')
+    }
+
+    void streamTTS(text.trim(), _event.sender).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'TTS playback failed'
+      console.error(message)
+      _event.sender.send('tts:error', { message })
+    })
   })
 
   createWindow()
@@ -351,6 +474,7 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  stopTTSBackend()
 })
 
 // In this file you can include the rest of your app's specific main process

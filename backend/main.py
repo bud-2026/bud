@@ -1,3 +1,4 @@
+import argparse
 import io
 import uvicorn
 import scipy.io.wavfile
@@ -6,6 +7,10 @@ from fastapi import FastAPI, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pocket_tts import TTSModel
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--port", type=int, default=0)
+args = parser.parse_args()
 
 model = None
 VOICE_STATES = {}
@@ -83,4 +88,4 @@ def tts_stream_endpoint(req: TTSRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=args.port, log_level="info")

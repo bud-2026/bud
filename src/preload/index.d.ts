@@ -2,7 +2,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 
 declare global {
   interface BoundingBox {
-    /** Percentage coordinates from 0 to 100 relative to the screen. */
+    /** Coordinates from 0 to 1000 on a normalized 1000x1000 screen grid. */
     topLeft: { x: number; y: number }
     bottomRight: { x: number; y: number }
     label?: string
@@ -20,6 +20,13 @@ declare global {
     }
     overlay: {
       onFocusChanged: (callback: (focused: boolean) => void) => () => void
+    }
+    tts: {
+      speak: (text: string) => Promise<void>
+      onStart: (callback: (event: { requestId: string; sampleRate: number }) => void) => () => void
+      onChunk: (callback: (event: { requestId: string; chunk: Uint8Array }) => void) => () => void
+      onEnd: (callback: (requestId: string) => void) => () => void
+      onError: (callback: (message: string) => void) => () => void
     }
   }
 
