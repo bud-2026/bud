@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import Indicator from './components/Indicator'
+import VoiceOrb from './components/VoiceOrb'
 import { askScreen } from './lib/ai'
 
 function App(): React.JSX.Element {
@@ -14,6 +15,20 @@ function App(): React.JSX.Element {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState('Starting voice listener...')
   const [voiceTranscript, setVoiceTranscript] = useState('')
+  const [voiceOrbState, setVoiceOrbState] = useState<
+    'hidden' | 'listening' | 'analyzing' | 'responding'
+  >('hidden')
+  const [isOrbExiting, setIsOrbExiting] = useState(false)
+  const voiceOrbStateRef = useRef(voiceOrbState)
+  const isLoadingRef = useRef(false)
+  const isSpeakingRef = useRef(false)
+  const orbHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const setOrbState = (state: 'hidden' | 'listening' | 'analyzing' | 'responding'): void => {
+    voiceOrbStateRef.current = state
+    if (state !== 'hidden') setIsOrbExiting(false)
+    setVoiceOrbState(state)
+  }
   const audioContextRef = useRef<AudioContext | null>(null)
   const nextAudioTimeRef = useRef<number>(0)
 
@@ -32,13 +47,18 @@ function App(): React.JSX.Element {
         }
 
         if (event.event === 'transcript' && event.text) {
+          if (voiceOrbStateRef.current !== 'analyzing' && !isSpeakingRef.current) {
+            setOrbState('listening')
+          }
           setVoiceTranscript(event.text)
         }
         if (event.event === 'final' && event.text) {
+          setOrbState('analyzing')
           setVoiceTranscript(event.text)
           setQuestion(event.text)
           setVoiceStatus('Analyzing voice question...')
           setIsLoading(true)
+          isLoadingRef.current = true
           setError(null)
           void askScreen(event.text)
             .then(setResult)
@@ -47,7 +67,10 @@ function App(): React.JSX.Element {
                 requestError instanceof Error ? requestError.message : 'Screen analysis failed'
               )
             })
-            .finally(() => setIsLoading(false))
+            .finally(() => {
+              setIsLoading(false)
+              isLoadingRef.current = false
+            })
           return
         }
 
@@ -57,12 +80,18 @@ function App(): React.JSX.Element {
           wake_detected: 'Wake word detected',
           transcribing: 'Listening for your question...'
         }
+        if (event.event === 'wake_detected' || event.event === 'transcribing') {
+          if (!isLoadingRef.current && !isSpeakingRef.current) setOrbState('listening')
+        }
         setVoiceStatus(statuses[event.event] ?? event.event)
       }),
     []
   )
   useEffect(() => {
     const unsubscribeStart = window.api.tts.onStart(({ sampleRate }) => {
+      if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
+      setOrbState('responding')
+      isSpeakingRef.current = true
       audioContextRef.current ??= new AudioContext({ sampleRate })
       void audioContextRef.current.resume()
       nextAudioTimeRef.current = Math.max(
@@ -87,9 +116,26 @@ function App(): React.JSX.Element {
       source.start(startTime)
       nextAudioTimeRef.current = startTime + audioBuffer.duration
     })
-    const unsubscribeEnd = window.api.tts.onEnd(() => setIsSpeaking(false))
+    const unsubscribeEnd = window.api.tts.onEnd(() => {
+      const context = audioContextRef.current
+      const remainingAudioMs = context
+        ? Math.max(0, (nextAudioTimeRef.current - context.currentTime) * 1000)
+        : 0
+
+      orbHideTimerRef.current = setTimeout(() => {
+        setIsSpeaking(false)
+        isSpeakingRef.current = false
+        setIsOrbExiting(true)
+        orbHideTimerRef.current = setTimeout(() => {
+          setIsOrbExiting(false)
+          setOrbState('hidden')
+        }, 220)
+      }, remainingAudioMs)
+    })
     const unsubscribeError = window.api.tts.onError((message) => {
       setIsSpeaking(false)
+      isSpeakingRef.current = false
+      setOrbState('hidden')
       setError(message)
     })
 
@@ -98,6 +144,7 @@ function App(): React.JSX.Element {
       unsubscribeChunk()
       unsubscribeEnd()
       unsubscribeError()
+      if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
       void audioContextRef.current?.close()
     }
   }, [])
@@ -109,6 +156,8 @@ function App(): React.JSX.Element {
     if (!prompt || isLoading) return
 
     setIsLoading(true)
+    isLoadingRef.current = true
+    setOrbState('analyzing')
     setError(null)
     try {
       setResult(await askScreen(prompt))
@@ -116,6 +165,7 @@ function App(): React.JSX.Element {
       setError(requestError instanceof Error ? requestError.message : 'Screen analysis failed')
     } finally {
       setIsLoading(false)
+      isLoadingRef.current = false
     }
   }
 
@@ -142,6 +192,7 @@ function App(): React.JSX.Element {
 
   return (
     <main className="overlay" aria-label="Screen overlay">
+      {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
       <section className={`debug-panel${isDebugOpen ? '' : ' debug-panel--collapsed'}`}>
         <button
           className="debug-panel__toggle"

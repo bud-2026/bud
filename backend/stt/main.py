@@ -65,7 +65,7 @@ def run() -> None:
     minimum_transcription_time = float(
         os.environ.get("STT_MIN_TRANSCRIPTION_SECONDS", "1.5")
     )
-    wake_threshold = float(os.environ.get("WAKEWORD_THRESHOLD", "0.5"))
+    wake_threshold = float(os.environ.get("WAKEWORD_THRESHOLD", "0.75"))
     language = os.environ.get("MOONSHINE_LANGUAGE", "en")
     latest_text = ""
     last_speech_at = 0.0

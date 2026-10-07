@@ -13,6 +13,127 @@ body {
   height: 100%;
 }
 
+.voice-orb {
+  position: fixed;
+  z-index: 10;
+  top: 28px;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  transform: translateX(-50%);
+  animation: voice-orb-pop-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+
+.voice-orb--hiding {
+  animation: voice-orb-pop-out 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.voice-orb__core {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 50%;
+  background: linear-gradient(145deg, #d8fff5, #4bd8b5 48%, #2476c9);
+  box-shadow:
+    0 0 16px rgba(99, 230, 190, 0.85),
+    0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.voice-orb__glow {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(99, 230, 190, 0.42);
+  filter: blur(14px);
+  animation: voice-orb-breathe 1.8s ease-in-out infinite;
+}
+
+.voice-orb__dot {
+  width: 5px;
+  height: 12px;
+  border-radius: 5px;
+  background: #fff;
+  animation: voice-orb-wave 900ms ease-in-out infinite;
+}
+
+.voice-orb__dot:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.voice-orb__dot:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+.voice-orb__label {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 4px #000;
+}
+
+.voice-orb--analyzing .voice-orb__core {
+  background: linear-gradient(145deg, #fff4be, #f4a340 52%, #d45272);
+}
+
+.voice-orb--responding .voice-orb__core {
+  background: linear-gradient(145deg, #e3d7ff, #a46cff 52%, #dc4eaa);
+}
+
+@keyframes voice-orb-pop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -18px) scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes voice-orb-pop-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.86);
+  }
+}
+
+@keyframes voice-orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes voice-orb-wave {
+  0%,
+  100% {
+    transform: scaleY(0.65);
+  }
+  50% {
+    transform: scaleY(1.45);
+  }
+}
+
 .debug-panel {
   position: fixed;
   top: 24px;
