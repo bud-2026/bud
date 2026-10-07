@@ -65,7 +65,10 @@ def run() -> None:
     minimum_transcription_time = float(
         os.environ.get("STT_MIN_TRANSCRIPTION_SECONDS", "1.5")
     )
-    wake_threshold = float(os.environ.get("WAKEWORD_THRESHOLD", "0.75"))
+    wake_threshold = float(os.environ.get("WAKEWORD_THRESHOLD", "0.85"))
+    wake_confirmation_frames = int(
+        os.environ.get("WAKEWORD_CONFIRMATION_FRAMES", "4")
+    )
     language = os.environ.get("MOONSHINE_LANGUAGE", "en")
     latest_text = ""
     last_speech_at = 0.0
@@ -86,11 +89,16 @@ def run() -> None:
         while True:
             recorder.start()
             emit("listening", wake_word=wake_word_name)
+            wake_confirmations = 0
             try:
                 while True:
                     audio = np.asarray(recorder.read(), dtype=np.int16)
                     scores = wake_word.predict(audio)
                     if max(scores.values(), default=0.0) >= wake_threshold:
+                        wake_confirmations += 1
+                    else:
+                        wake_confirmations = 0
+                    if wake_confirmations >= wake_confirmation_frames:
                         break
             finally:
                 recorder.stop()
