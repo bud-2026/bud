@@ -99,28 +99,37 @@ def run() -> None:
             latest_text = ""
             transcription_started_at = time.monotonic()
             last_speech_at = transcription_started_at
+            completed_lines: list[str] = []
             stop_transcription.clear()
 
-            def on_text(text: str) -> None:
+            def update_transcript(value: str, final: bool) -> None:
                 nonlocal latest_text, last_speech_at
+                if not value:
+                    return
+
+                if final:
+                    completed_lines.append(value)
+                    transcript = " ".join(completed_lines)
+                else:
+                    transcript = " ".join([*completed_lines, value])
+
+                latest_text = transcript
+                last_speech_at = time.monotonic()
+                emit("transcript", text=transcript, final=final)
+
+            def on_text(text: str) -> None:
                 value = value_from_line(text)
-                if value:
-                    latest_text = value
-                    last_speech_at = time.monotonic()
-                    emit("transcript", text=value, final=False)
+                update_transcript(value, final=False)
 
             def on_line(line: Any) -> None:
-                nonlocal latest_text, last_speech_at
                 value = value_from_line(line)
-                if value:
-                    latest_text = value
-                    last_speech_at = time.monotonic()
-                    emit("transcript", text=value, final=True)
+                update_transcript(value, final=True)
 
             transcriber = (
                 MicTranscriber()
                 .language(language)
                 .model_arch(ModelArch.SMALL_STREAMING)
+                .update_interval(0.25)
                 .on_text(on_text)
                 .on_line(on_line)
             )
