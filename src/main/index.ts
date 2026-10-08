@@ -461,6 +461,8 @@ async function askAboutScreen(
   })
   const response = await client.chat.completions.create({
     model,
+    temperature: 0,
+    top_p: 0.95,
     response_format: {
       type: 'json_schema',
       json_schema: {

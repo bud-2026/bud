@@ -343,7 +343,7 @@ function App(): React.JSX.Element {
                 disabled={isLoading}
               />
               <button type="submit" disabled={isLoading || !question.trim()}>
-                {isLoading ? 'Analyzing...' : 'Ask'}
+                Ask
               </button>
             </div>
             {result && <p className="question-panel__response">{result.text}</p>}
@@ -362,7 +362,7 @@ function App(): React.JSX.Element {
                 disabled={isTtsLoading}
               />
               <button type="submit" disabled={isTtsLoading || !ttsText.trim()}>
-                {isTtsLoading ? 'Sending...' : 'Speak'}
+                Speak
               </button>
             </div>
           </form>
@@ -392,7 +392,7 @@ function App(): React.JSX.Element {
                 aria-label="AI model ID"
               />
               <button type="submit" disabled={isSavingSettings}>
-                {isSavingSettings ? 'Saving...' : 'Save'}
+                Save
               </button>
             </div>
           </form>
