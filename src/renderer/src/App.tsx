@@ -3,6 +3,8 @@ import Indicator from './components/Indicator'
 import VoiceOrb from './components/VoiceOrb'
 import { askScreen } from './lib/ai'
 
+const VOICE_HISTORY_MESSAGE_LIMIT = 20
+
 function App(): React.JSX.Element {
   const [question, setQuestion] = useState('')
   const [ttsText, setTtsText] = useState('')
@@ -51,7 +53,6 @@ function App(): React.JSX.Element {
     voiceInactivityTimerRef.current = setTimeout(() => {
       voiceSessionActiveRef.current = false
       voiceSessionEndedRef.current = true
-      voiceConversationHistoryRef.current = []
       void window.api.voice.stopSession().catch((error: unknown) => {
         setError(error instanceof Error ? error.message : 'Could not stop voice listening')
       })
@@ -106,7 +107,6 @@ function App(): React.JSX.Element {
           if (event.end_session) {
             voiceSessionActiveRef.current = false
             voiceSessionEndedRef.current = true
-            voiceConversationHistoryRef.current = []
             clearVoiceInactivityTimer()
             setVoiceStatus('Conversation ended · say the wake word to start again')
             hideOrbWithAnimation()
@@ -127,7 +127,7 @@ function App(): React.JSX.Element {
                 ...voiceConversationHistoryRef.current,
                 { role: 'user' as const, content: userText },
                 { role: 'assistant' as const, content: screenResponse.text }
-              ].slice(-8)
+              ].slice(-VOICE_HISTORY_MESSAGE_LIMIT)
               setResult(screenResponse)
             })
             .catch((requestError: unknown) => {
@@ -150,7 +150,6 @@ function App(): React.JSX.Element {
           transcribing: 'Listening for your question...'
         }
         if (event.event === 'wake_detected') {
-          voiceConversationHistoryRef.current = []
           voiceSessionEndedRef.current = false
           voiceSessionActiveRef.current = true
           resetVoiceInactivityTimer()
