@@ -20,6 +20,7 @@ dotenv.config({ path: join(app.getAppPath(), '.env') })
 
 const ttsPort = Number(process.env.TTS_BACKEND_PORT ?? 8765)
 const ttsBaseUrl = process.env.TTS_BACKEND_URL ?? `http://127.0.0.1:${ttsPort}`
+const screenCaptureMaxDimension = Number(process.env.SCREEN_CAPTURE_MAX_DIMENSION ?? 1920)
 let ttsProcess: ChildProcess | undefined
 let voiceProcess: ChildProcess | undefined
 
@@ -200,7 +201,7 @@ const systemPrompt = `
 Analyze the image. Return ONLY valid JSON matching the schema below.
 
 CRITICAL INSTRUCTIONS:
-1. "text": Provide a direct, friendly, and naturally spoken answer suited for a voice assistant (like Siri). Use complete, fluid sentences, but strictly answer only what was asked—do not add extra facts or unrequested details.
+1. "text": Provide a direct, friendly, and naturally spoken answer suited for a voice assistant (like Siri). Use complete, fluid sentences, but strictly answer only what was asked—do not add extra facts or unrequested details. If asked whether you can do or see something, start your response with a natural phrase like "Sure, ...".
 2. TTS PHONETIC FORMATTING: Spell out ALL numbers, dates, times, units, and symbols entirely as full words so the text-to-speech engine pronounces them correctly (e.g., write "seven fifteen p m" instead of "7:15 PM", "forty-two dollars" instead of "$42", "percent" instead of "%").
 3. "boxes": Highlight every relevant object, region, or visual element directly referenced in your spoken response.
 4. COORDINATE FORMAT:
@@ -222,7 +223,7 @@ JSON Schema:
 
 Example Output:
 {
-  "text": "The display shows the next train leaves at seven fifteen p m.",
+  "text": "Sure, the display shows the next train leaves at seven fifteen p m.",
   "boxes": [
     {
       "bbox": [438, 577, 663, 653],
@@ -341,11 +342,17 @@ async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
 
 async function capturePrimaryScreen(): Promise<string> {
   const display = screen.getPrimaryDisplay()
+  const { width, height } = display.size
+  const maxDimension =
+    Number.isFinite(screenCaptureMaxDimension) && screenCaptureMaxDimension > 0
+      ? screenCaptureMaxDimension
+      : 1920
+  const scale = Math.min(1, maxDimension / Math.max(width, height))
   const sources = await desktopCapturer.getSources({
     types: ['screen'],
     thumbnailSize: {
-      width: display.size.width,
-      height: display.size.height
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale))
     },
     fetchWindowIcons: false
   })
