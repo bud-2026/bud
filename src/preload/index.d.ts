@@ -36,6 +36,7 @@ declare global {
       onError: (callback: (message: string) => void) => () => void
     }
     voice: {
+      stopSession: () => Promise<void>
       onEvent: (
         callback: (event: {
           event:

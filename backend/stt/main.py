@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -10,12 +12,33 @@ def emit(event: str, **data: Any) -> None:
     print(json.dumps({"event": event, **data}), flush=True)
 
 
+def listen_for_commands(stop_transcription: threading.Event, stop_session: threading.Event) -> None:
+    for line in sys.stdin:
+        try:
+            command = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(command, dict) and command.get("command") == "stop_session":
+            stop_session.set()
+            stop_transcription.set()
+
+
 def value_from_line(line: Any) -> str:
     if isinstance(line, str):
         return line.strip()
     if isinstance(line, dict):
         return str(line.get("text", "")).strip()
     return str(getattr(line, "text", "")).strip()
+
+
+def remove_wake_word_prefix(text: str, wake_word: str) -> str:
+    normalized_text = " ".join(text.lower().split())
+    normalized_wake_word = " ".join(wake_word.lower().split())
+    if normalized_text and normalized_wake_word.startswith(normalized_text):
+        return ""
+
+    pattern = rf"^\s*{re.escape(wake_word)}(?:[\s,!.?:;-]+|$)"
+    return re.sub(pattern, "", text, count=1, flags=re.IGNORECASE).strip()
 
 
 def is_stop_phrase(text: str, stop_phrases: set[str]) -> bool:
@@ -89,6 +112,12 @@ def run() -> None:
     latest_text = ""
     last_speech_at = 0.0
     stop_transcription = threading.Event()
+    stop_session = threading.Event()
+    threading.Thread(
+        target=listen_for_commands,
+        args=(stop_transcription, stop_session),
+        daemon=True,
+    ).start()
 
     try:
         model_file, wake_word_name = resolve_wake_word_model()
@@ -128,12 +157,19 @@ def run() -> None:
                 transcription_started_at = time.monotonic()
                 last_speech_at = transcription_started_at
                 completed_lines: list[str] = []
+                first_turn = True
                 stop_transcription.clear()
 
                 def update_transcript(value: str, final: bool) -> None:
-                    nonlocal latest_text, last_speech_at
+                    nonlocal first_turn, latest_text, last_speech_at
                     if not value:
                         return
+
+                    if first_turn:
+                        value = remove_wake_word_prefix(value, wake_word_name)
+                        if not value:
+                            return
+                        first_turn = False
 
                     if final:
                         completed_lines.append(value)
@@ -171,6 +207,11 @@ def run() -> None:
 
                 transcriber.stop()
                 transcriber.close()
+                if stop_session.is_set():
+                    stop_session.clear()
+                    emit("conversation_ended")
+                    conversation_active = False
+                    continue
                 if not latest_text:
                     emit("error", message="No speech was transcribed")
                     conversation_active = False

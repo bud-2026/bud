@@ -86,6 +86,7 @@ const api = {
     }
   },
   voice: {
+    stopSession: (): Promise<void> => ipcRenderer.invoke('voice:stop-session'),
     onEvent: (callback: (event: VoiceEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: VoiceEvent): void => callback(data)
       ipcRenderer.on('voice:event', listener)

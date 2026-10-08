@@ -70,7 +70,7 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
   voiceProcess = spawn(pythonExecutable, [backendScript], {
     cwd: backendDirectory,
     env: process.env,
-    stdio: ['ignore', 'pipe', 'inherit'],
+    stdio: ['pipe', 'pipe', 'inherit'],
     windowsHide: true
   })
 
@@ -105,6 +105,12 @@ function stopVoiceBackend(): void {
   if (voiceProcess && !voiceProcess.killed) {
     voiceProcess.kill()
     voiceProcess = undefined
+  }
+}
+
+function stopVoiceSession(): void {
+  if (voiceProcess?.stdin?.writable) {
+    voiceProcess.stdin.write('{"command":"stop_session"}\n')
   }
 }
 
@@ -609,6 +615,10 @@ app.whenReady().then(() => {
       console.error(message)
       _event.sender.send('tts:error', { message })
     })
+  })
+
+  ipcMain.handle('voice:stop-session', () => {
+    stopVoiceSession()
   })
 
   createWindow()

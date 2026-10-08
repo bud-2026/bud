@@ -24,6 +24,7 @@ function App(): React.JSX.Element {
   const voiceSessionActiveRef = useRef(false)
   const voiceSessionEndedRef = useRef(false)
   const orbHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const voiceInactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const boxesClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingBoxClearRef = useRef(false)
   const screenConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
@@ -45,6 +46,24 @@ function App(): React.JSX.Element {
       setOrbState('hidden')
     }, 220)
   }, [setOrbState])
+  const resetVoiceInactivityTimer = useCallback((): void => {
+    if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
+    voiceInactivityTimerRef.current = setTimeout(() => {
+      voiceSessionActiveRef.current = false
+      voiceSessionEndedRef.current = true
+      voiceConversationHistoryRef.current = []
+      void window.api.voice.stopSession().catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : 'Could not stop voice listening')
+      })
+      hideOrbWithAnimation()
+    }, 10_000)
+  }, [hideOrbWithAnimation])
+  const clearVoiceInactivityTimer = useCallback((): void => {
+    if (voiceInactivityTimerRef.current) {
+      clearTimeout(voiceInactivityTimerRef.current)
+      voiceInactivityTimerRef.current = null
+    }
+  }, [])
   const scheduleBoundingBoxClear = (): void => {
     if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
     boxesClearTimerRef.current = setTimeout(() => {
@@ -63,6 +82,7 @@ function App(): React.JSX.Element {
         if (event.event === 'error') {
           voiceSessionActiveRef.current = false
           voiceSessionEndedRef.current = false
+          if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
           setVoiceStatus('Voice error')
           setError(event.message ?? 'Voice listener failed')
           return
@@ -77,6 +97,7 @@ function App(): React.JSX.Element {
           voiceSessionActiveRef.current = true
           if (voiceOrbStateRef.current !== 'analyzing' && !isSpeakingRef.current) {
             setOrbState('listening')
+            resetVoiceInactivityTimer()
           }
           setVoiceTranscript(event.text)
         }
@@ -86,10 +107,12 @@ function App(): React.JSX.Element {
             voiceSessionActiveRef.current = false
             voiceSessionEndedRef.current = true
             voiceConversationHistoryRef.current = []
+            clearVoiceInactivityTimer()
             setVoiceStatus('Conversation ended · say the wake word to start again')
             hideOrbWithAnimation()
             return
           }
+          if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
           setOrbState('analyzing')
           setVoiceTranscript(userText)
           setQuestion(userText)
@@ -127,23 +150,24 @@ function App(): React.JSX.Element {
           transcribing: 'Listening for your question...'
         }
         if (event.event === 'wake_detected') {
-          if (voiceSessionEndedRef.current) {
-            voiceConversationHistoryRef.current = []
-          }
+          voiceConversationHistoryRef.current = []
           voiceSessionEndedRef.current = false
           voiceSessionActiveRef.current = true
+          resetVoiceInactivityTimer()
           if (!isLoadingRef.current && !isSpeakingRef.current) setOrbState('listening')
         } else if (event.event === 'transcribing' && !voiceSessionEndedRef.current) {
           voiceSessionActiveRef.current = true
+          resetVoiceInactivityTimer()
           if (!isLoadingRef.current && !isSpeakingRef.current) setOrbState('listening')
         }
         setVoiceStatus(statuses[event.event] ?? event.event)
       }),
-    [hideOrbWithAnimation, setOrbState]
+    [clearVoiceInactivityTimer, hideOrbWithAnimation, resetVoiceInactivityTimer, setOrbState]
   )
   useEffect(() => {
     const unsubscribeStart = window.api.tts.onStart(({ sampleRate }) => {
       if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
+      clearVoiceInactivityTimer()
       setOrbState('responding')
       isSpeakingRef.current = true
       audioContextRef.current ??= new AudioContext({ sampleRate })
@@ -185,6 +209,7 @@ function App(): React.JSX.Element {
         isSpeakingRef.current = false
         if (voiceSessionActiveRef.current) {
           setOrbState('listening')
+          resetVoiceInactivityTimer()
           return
         }
         hideOrbWithAnimation()
@@ -207,10 +232,11 @@ function App(): React.JSX.Element {
       unsubscribeEnd()
       unsubscribeError()
       if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
+      if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
       if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
       void audioContextRef.current?.close()
     }
-  }, [hideOrbWithAnimation, setOrbState])
+  }, [clearVoiceInactivityTimer, hideOrbWithAnimation, resetVoiceInactivityTimer, setOrbState])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
