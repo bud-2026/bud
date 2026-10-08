@@ -197,6 +197,11 @@ interface ScreenAIResponse {
   boxes: BoundingBox[]
 }
 
+interface ScreenConversationMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 const systemPrompt = `
 Analyze the image. Return ONLY valid JSON matching the schema below.
 
@@ -236,10 +241,16 @@ Use an empty "boxes" array only when no relevant spatial objects are present. Re
 `
 
 function parseScreenResponse(content: string): ScreenAIResponse {
-  const jsonContent = content
+  const cleanedContent = content
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim()
+  const firstObject = cleanedContent.indexOf('{')
+  const lastObject = cleanedContent.lastIndexOf('}')
+  const jsonContent =
+    firstObject >= 0 && lastObject > firstObject
+      ? cleanedContent.slice(firstObject, lastObject + 1)
+      : cleanedContent
 
   let parsed: unknown
   try {
@@ -366,7 +377,10 @@ async function capturePrimaryScreen(): Promise<string> {
   return source.thumbnail.toDataURL()
 }
 
-async function askAboutScreen(prompt: string): Promise<ScreenAIResponse> {
+async function askAboutScreen(
+  prompt: string,
+  history: ScreenConversationMessage[] = []
+): Promise<ScreenAIResponse> {
   const imageUrl = await capturePrimaryScreen()
   const apiKey = process.env.NEBIUS_API_KEY
   const model = process.env.NEBIUS_MODEL_ID
@@ -381,11 +395,59 @@ async function askAboutScreen(prompt: string): Promise<ScreenAIResponse> {
   })
   const response = await client.chat.completions.create({
     model,
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'screen_analysis',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            text: {
+              type: 'string',
+              description: 'A concise spoken answer for the user.'
+            },
+            boxes: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  bbox: {
+                    type: 'array',
+                    description: '[ymin, xmin, ymax, xmax], normalized from 0 to 1000.',
+                    items: {
+                      type: 'number',
+                      minimum: 0,
+                      maximum: 1000
+                    },
+                    minItems: 4,
+                    maxItems: 4
+                  },
+                  label: {
+                    type: 'string',
+                    description: 'A concise label for the highlighted region.'
+                  }
+                },
+                required: ['bbox', 'label']
+              }
+            }
+          },
+          required: ['text', 'boxes']
+        }
+      }
+    },
     messages: [
       {
         role: 'system',
-        content: systemPrompt
+        content: `${systemPrompt}
+
+This is a follow-up in the same conversation when prior messages are present.
+Use the prior messages to resolve references such as "that", "it", or "the previous one",
+but always return the exact same JSON object structure. Never return plain conversational text.`
       },
+      ...history,
       {
         role: 'user',
         content: [
@@ -493,12 +555,35 @@ app.whenReady().then(() => {
     return response
   })
 
-  ipcMain.handle('ai:ask-screen', async (_event, prompt: unknown) => {
-    if (typeof prompt !== 'string' || prompt.trim().length === 0) {
+  ipcMain.handle('ai:ask-screen', async (_event, request: unknown) => {
+    if (
+      typeof request !== 'object' ||
+      request === null ||
+      !('prompt' in request) ||
+      typeof request.prompt !== 'string' ||
+      request.prompt.trim().length === 0
+    ) {
       throw new Error('Screen analysis prompt must be a non-empty string')
     }
 
-    const result = await askAboutScreen(prompt)
+    const history = 'history' in request ? request.history : undefined
+    if (
+      history !== undefined &&
+      (!Array.isArray(history) ||
+        history.some(
+          (message) =>
+            typeof message !== 'object' ||
+            message === null ||
+            !('role' in message) ||
+            (message.role !== 'user' && message.role !== 'assistant') ||
+            !('content' in message) ||
+            typeof message.content !== 'string'
+        ))
+    ) {
+      throw new Error('Screen analysis history must contain valid messages')
+    }
+
+    const result = await askAboutScreen(request.prompt, history)
     void streamTTS(result.text, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)

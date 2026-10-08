@@ -9,6 +9,11 @@ interface ScreenAIResponse {
   }>
 }
 
+interface ScreenConversationMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 interface TTSStartEvent {
   requestId: string
   sampleRate: number
@@ -41,8 +46,8 @@ const api = {
   ai: {
     ask: (prompt: string, imageUrl?: string): Promise<string> =>
       ipcRenderer.invoke('ai:ask', { prompt, imageUrl }),
-    askScreen: (prompt: string): Promise<ScreenAIResponse> =>
-      ipcRenderer.invoke('ai:ask-screen', prompt)
+    askScreen: (prompt: string, history?: ScreenConversationMessage[]): Promise<ScreenAIResponse> =>
+      ipcRenderer.invoke('ai:ask-screen', { prompt, history })
   },
   overlay: {
     onDebugVisibilityChanged: (callback: (visible: boolean) => void): (() => void) => {

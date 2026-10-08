@@ -26,6 +26,8 @@ function App(): React.JSX.Element {
   const orbHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const boxesClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingBoxClearRef = useRef(false)
+  const screenConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
+  const voiceConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
 
   const setOrbState = (state: 'hidden' | 'listening' | 'analyzing' | 'responding'): void => {
     voiceOrbStateRef.current = state
@@ -68,23 +70,32 @@ function App(): React.JSX.Element {
           setVoiceTranscript(event.text)
         }
         if (event.event === 'final' && event.text) {
+          const userText = event.text
           if (event.end_session) {
             voiceSessionActiveRef.current = false
             voiceSessionEndedRef.current = true
+            voiceConversationHistoryRef.current = []
             setVoiceStatus('Conversation ended · say the wake word to start again')
             setOrbState('hidden')
             return
           }
           setOrbState('analyzing')
-          setVoiceTranscript(event.text)
-          setQuestion(event.text)
+          setVoiceTranscript(userText)
+          setQuestion(userText)
           setVoiceStatus('Analyzing voice question...')
           setIsLoading(true)
           isLoadingRef.current = true
           pendingBoxClearRef.current = true
           setError(null)
-          void askScreen(event.text)
-            .then(setResult)
+          void askScreen(userText, voiceConversationHistoryRef.current)
+            .then((screenResponse) => {
+              voiceConversationHistoryRef.current = [
+                ...voiceConversationHistoryRef.current,
+                { role: 'user' as const, content: userText },
+                { role: 'assistant' as const, content: screenResponse.text }
+              ].slice(-8)
+              setResult(screenResponse)
+            })
             .catch((requestError: unknown) => {
               pendingBoxClearRef.current = false
               setError(
@@ -105,6 +116,9 @@ function App(): React.JSX.Element {
           transcribing: 'Listening for your question...'
         }
         if (event.event === 'wake_detected') {
+          if (voiceSessionEndedRef.current) {
+            voiceConversationHistoryRef.current = []
+          }
           voiceSessionEndedRef.current = false
           voiceSessionActiveRef.current = true
           if (!isLoadingRef.current && !isSpeakingRef.current) setOrbState('listening')
@@ -204,7 +218,12 @@ function App(): React.JSX.Element {
     if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
     pendingBoxClearRef.current = true
     try {
-      const screenResponse = await askScreen(prompt)
+      const screenResponse = await askScreen(prompt, screenConversationHistoryRef.current)
+      screenConversationHistoryRef.current = [
+        ...screenConversationHistoryRef.current,
+        { role: 'user' as const, content: prompt },
+        { role: 'assistant' as const, content: screenResponse.text }
+      ].slice(-8)
       setResult(screenResponse)
     } catch (requestError) {
       pendingBoxClearRef.current = false

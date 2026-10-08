@@ -12,10 +12,18 @@ declare global {
     boxes: BoundingBox[]
   }
 
+  interface ScreenConversationMessage {
+    role: 'user' | 'assistant'
+    content: string
+  }
+
   interface Api {
     ai: {
       ask: (prompt: string, imageUrl?: string) => Promise<string>
-      askScreen: (prompt: string) => Promise<ScreenAIResponse>
+      askScreen: (
+        prompt: string,
+        history?: ScreenConversationMessage[]
+      ) => Promise<ScreenAIResponse>
     }
     overlay: {
       onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
