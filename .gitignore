@@ -1,5 +1,7 @@
 node_modules
 backend/**/.venv
+build/python
+build/pyinstaller-*
 .env
 .env.*
 !.env.example

@@ -17,6 +17,12 @@ declare global {
     content: string
   }
 
+    interface AISettings {
+      baseUrl: string
+      apiKey: string
+      modelId: string
+    }
+
   interface Api {
     ai: {
       ask: (prompt: string, imageUrl?: string) => Promise<string>
@@ -55,6 +61,10 @@ declare global {
           wake_word?: string
         }) => void
       ) => () => void
+    }
+    settings: {
+      getAI: () => Promise<AISettings>
+      saveAI: (settings: AISettings) => Promise<AISettings>
     }
   }
 

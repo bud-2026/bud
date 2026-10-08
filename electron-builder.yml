@@ -11,6 +11,11 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+extraResources:
+  - from: build/python
+    to: python
+    filter:
+      - '**/*'
 win:
   executableName: bud
 nsis:

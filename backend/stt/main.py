@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import sys
 import threading
@@ -50,17 +49,17 @@ def is_stop_phrase(text: str, stop_phrases: set[str]) -> bool:
 
 
 def resolve_wake_word_model() -> tuple[Path, str]:
-    configured_path = os.environ.get("WAKEWORD_MODEL_PATH", "backend/stt/models/hey_bud.onnx")
-    model_file = Path(configured_path)
-    if not model_file.is_absolute():
-        project_root = Path(__file__).resolve().parents[2]
-        project_relative = project_root / model_file
-        model_file = project_relative if project_relative.exists() else Path.cwd() / model_file
+    model_candidates = (
+        Path.cwd() / "models" / "hey_bud.onnx",
+        Path(__file__).resolve().parent / "models" / "hey_bud.onnx",
+        Path(__file__).resolve().parents[2] / "backend" / "stt" / "models" / "hey_bud.onnx",
+    )
+    model_file = next((candidate for candidate in model_candidates if candidate.exists()), None)
 
-    if model_file.exists():
+    if model_file is not None:
         return model_file, "hey bud"
 
-    fallback_name = os.environ.get("WAKEWORD_FALLBACK", "hey_mycroft")
+    fallback_name = "hey_mycroft"
     import openwakeword
     from openwakeword.utils import download_models
 
@@ -92,23 +91,12 @@ def run() -> None:
         emit("error", message=f"STT dependency is missing: {error}")
         return
 
-    silence_timeout = float(os.environ.get("STT_SILENCE_TIMEOUT", "1.5"))
-    minimum_transcription_time = float(
-        os.environ.get("STT_MIN_TRANSCRIPTION_SECONDS", "1.5")
-    )
-    wake_threshold = float(os.environ.get("WAKEWORD_THRESHOLD", "0.85"))
-    wake_confirmation_frames = int(
-        os.environ.get("WAKEWORD_CONFIRMATION_FRAMES", "5")
-    )
-    stop_phrases = {
-        phrase.strip().lower()
-        for phrase in os.environ.get(
-            "STT_STOP_PHRASES",
-            "thank you,thanks,stop,that's all,goodbye",
-        ).split(",")
-        if phrase.strip()
-    }
-    language = os.environ.get("MOONSHINE_LANGUAGE", "en")
+    silence_timeout = 1.5
+    minimum_transcription_time = 1.5
+    wake_threshold = 0.85
+    wake_confirmation_frames = 5
+    stop_phrases = {"thank you", "thanks", "stop", "that's all", "goodbye"}
+    language = "en"
     latest_text = ""
     last_speech_at = 0.0
     stop_transcription = threading.Event()
@@ -126,7 +114,7 @@ def run() -> None:
             inference_framework="onnx",
         )
         recorder = PvRecorder(
-            device_index=int(os.environ.get("STT_AUDIO_DEVICE", "-1")),
+            device_index=-1,
             frame_length=1280,
         )
         emit("ready", wake_word=wake_word_name)

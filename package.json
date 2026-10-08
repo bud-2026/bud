@@ -15,8 +15,10 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
+    "prepare:backends": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backends.ps1",
+    "validate:backends": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-backends.ps1",
+    "build:unpack": "npm run prepare:backends && npm run validate:backends && npm run build && electron-builder --dir",
+    "build:win": "npm run prepare:backends && npm run validate:backends && npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"
   },

@@ -8,6 +8,12 @@ const VOICE_HISTORY_MESSAGE_LIMIT = 20
 function App(): React.JSX.Element {
   const [question, setQuestion] = useState('')
   const [ttsText, setTtsText] = useState('')
+  const [aiSettings, setAiSettings] = useState<AISettings>({
+    baseUrl: '',
+    apiKey: '',
+    modelId: ''
+  })
+  const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [result, setResult] = useState<ScreenAIResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isTtsLoading, setIsTtsLoading] = useState(false)
@@ -77,6 +83,16 @@ function App(): React.JSX.Element {
   const nextAudioTimeRef = useRef<number>(0)
 
   useEffect(() => window.api.overlay.onDebugVisibilityChanged(setIsDebugOpen), [])
+  useEffect(() => {
+    void window.api.settings
+      .getAI()
+      .then(setAiSettings)
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error ? requestError.message : 'Could not load AI settings'
+        )
+      })
+  }, [])
   useEffect(
     () =>
       window.api.voice.onEvent((event) => {
@@ -283,6 +299,19 @@ function App(): React.JSX.Element {
     }
   }
 
+  const handleSettingsSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+    setIsSavingSettings(true)
+    setError(null)
+    try {
+      setAiSettings(await window.api.settings.saveAI(aiSettings))
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not save AI settings')
+    } finally {
+      setIsSavingSettings(false)
+    }
+  }
+
   const clearBoundingBoxes = (): void => {
     if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
     pendingBoxClearRef.current = false
@@ -334,6 +363,36 @@ function App(): React.JSX.Element {
               />
               <button type="submit" disabled={isTtsLoading || !ttsText.trim()}>
                 {isTtsLoading ? 'Sending...' : 'Speak'}
+              </button>
+            </div>
+          </form>
+          <form className="question-panel" onSubmit={handleSettingsSubmit}>
+            <label htmlFor="ai-base-url">AI settings</label>
+            <input
+              id="ai-base-url"
+              value={aiSettings.baseUrl}
+              onChange={(event) => setAiSettings({ ...aiSettings, baseUrl: event.target.value })}
+              placeholder="https://api.example.com/v1/"
+              disabled={isSavingSettings}
+            />
+            <input
+              type="password"
+              value={aiSettings.apiKey}
+              onChange={(event) => setAiSettings({ ...aiSettings, apiKey: event.target.value })}
+              placeholder="API key"
+              disabled={isSavingSettings}
+              aria-label="AI API key"
+            />
+            <div className="question-panel__controls">
+              <input
+                value={aiSettings.modelId}
+                onChange={(event) => setAiSettings({ ...aiSettings, modelId: event.target.value })}
+                placeholder="Model ID"
+                disabled={isSavingSettings}
+                aria-label="AI model ID"
+              />
+              <button type="submit" disabled={isSavingSettings}>
+                {isSavingSettings ? 'Saving...' : 'Save'}
               </button>
             </div>
           </form>

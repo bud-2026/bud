@@ -10,7 +10,7 @@ import {
 import { spawn, type ChildProcess } from 'child_process'
 import dotenv from 'dotenv'
 import OpenAI from 'openai'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -18,30 +18,68 @@ import icon from '../../resources/icon.png?asset'
 
 dotenv.config({ path: join(app.getAppPath(), '.env') })
 
-const ttsPort = Number(process.env.TTS_BACKEND_PORT ?? 8765)
-const ttsBaseUrl = process.env.TTS_BACKEND_URL ?? `http://127.0.0.1:${ttsPort}`
-const screenCaptureMaxDimension = Number(process.env.SCREEN_CAPTURE_MAX_DIMENSION ?? 1920)
+const ttsPort = 8765
+const ttsBaseUrl = `http://127.0.0.1:${ttsPort}`
+const screenCaptureMaxDimension = 1920
+const packagedBackendDirectory = join(process.resourcesPath, 'python')
 let ttsProcess: ChildProcess | undefined
 let voiceProcess: ChildProcess | undefined
 
-function startTTSBackend(): void {
-  const backendDirectory = join(app.getAppPath(), 'backend')
-  const ttsDirectory = join(app.getAppPath(), 'backend', 'tts')
-  const venvPython = join(ttsDirectory, '.venv', 'Scripts', 'python.exe')
-  const pythonExecutable = existsSync(venvPython) ? venvPython : 'python'
-  const backendScript = join(ttsDirectory, 'main.py')
+function getAISettingsPath(): string {
+  return join(app.getPath('userData'), 'ai-settings.json')
+}
 
-  if (!existsSync(backendScript)) {
-    console.error(`TTS backend script not found: ${backendScript}`)
+function getAISettings(): AISettings {
+  const defaults: AISettings = {
+    baseUrl: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
+    apiKey: process.env.NEBIUS_API_KEY ?? '',
+    modelId: process.env.NEBIUS_MODEL_ID ?? ''
+  }
+
+  try {
+    const stored = JSON.parse(readFileSync(getAISettingsPath(), 'utf8')) as Partial<AISettings>
+    return {
+      baseUrl: typeof stored.baseUrl === 'string' ? stored.baseUrl : defaults.baseUrl,
+      apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : defaults.apiKey,
+      modelId: typeof stored.modelId === 'string' ? stored.modelId : defaults.modelId
+    }
+  } catch {
+    return defaults
+  }
+}
+
+function saveAISettings(settings: AISettings): void {
+  writeFileSync(getAISettingsPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
+}
+
+function startTTSBackend(): void {
+  const isPackaged = app.isPackaged
+  const backendDirectory = isPackaged
+    ? join(packagedBackendDirectory, 'tts')
+    : join(app.getAppPath(), 'backend', 'tts')
+  const pythonExecutable = isPackaged
+    ? join(backendDirectory, 'bud-tts-backend', 'bud-tts-backend.exe')
+    : join(backendDirectory, '.venv', 'Scripts', 'python.exe')
+  const backendScript = join(backendDirectory, 'main.py')
+
+  if (!existsSync(pythonExecutable) || (!isPackaged && !existsSync(backendScript))) {
+    console.error(`TTS backend is not prepared: ${pythonExecutable}`)
     return
   }
 
-  ttsProcess = spawn(pythonExecutable, [backendScript, '--port', String(ttsPort)], {
-    cwd: backendDirectory,
-    env: process.env,
-    stdio: 'inherit',
-    windowsHide: true
-  })
+  ttsProcess = spawn(
+    pythonExecutable,
+    isPackaged ? ['--port', String(ttsPort)] : [backendScript, '--port', String(ttsPort)],
+    {
+      cwd: backendDirectory,
+      env: {
+        ...process.env,
+        ...(isPackaged ? { HF_HOME: join(packagedBackendDirectory, 'model-cache') } : {})
+      },
+      stdio: 'inherit',
+      windowsHide: true
+    }
+  )
   ttsProcess.on('error', (error) => console.error('TTS backend failed to start:', error))
   ttsProcess.on('exit', (code, signal) => {
     console.log(`TTS backend exited (code=${code}, signal=${signal ?? 'none'})`)
@@ -57,19 +95,26 @@ function stopTTSBackend(): void {
 }
 
 function startVoiceBackend(mainWindow: BrowserWindow): void {
-  const backendDirectory = join(app.getAppPath(), 'backend', 'stt')
-  const venvPython = join(backendDirectory, '.venv', 'Scripts', 'python.exe')
-  const pythonExecutable = existsSync(venvPython) ? venvPython : 'python'
+  const isPackaged = app.isPackaged
+  const backendDirectory = isPackaged
+    ? join(packagedBackendDirectory, 'stt')
+    : join(app.getAppPath(), 'backend', 'stt')
+  const pythonExecutable = isPackaged
+    ? join(backendDirectory, 'bud-stt-backend', 'bud-stt-backend.exe')
+    : join(backendDirectory, '.venv', 'Scripts', 'python.exe')
   const backendScript = join(backendDirectory, 'main.py')
 
-  if (!existsSync(backendScript)) {
-    console.error(`Voice backend script not found: ${backendScript}`)
+  if (!existsSync(pythonExecutable) || (!isPackaged && !existsSync(backendScript))) {
+    console.error(`Voice backend is not prepared: ${pythonExecutable}`)
     return
   }
 
   voiceProcess = spawn(pythonExecutable, [backendScript], {
     cwd: backendDirectory,
-    env: process.env,
+    env: {
+      ...process.env,
+      ...(isPackaged ? { HF_HOME: join(packagedBackendDirectory, 'model-cache') } : {})
+    },
     stdio: ['pipe', 'pipe', 'inherit'],
     windowsHide: true
   })
@@ -193,6 +238,12 @@ interface AIRequest {
   imageUrl?: string
 }
 
+interface AISettings {
+  baseUrl: string
+  apiKey: string
+  modelId: string
+}
+
 interface BoundingBox {
   bbox: [number, number, number, number]
   label?: string
@@ -312,8 +363,9 @@ function parseScreenResponse(content: string): ScreenAIResponse {
 }
 
 async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
-  const apiKey = process.env.NEBIUS_API_KEY
-  const model = process.env.NEBIUS_MODEL_ID
+  const settings = getAISettings()
+  const apiKey = settings.apiKey
+  const model = settings.modelId
 
   if (!apiKey) {
     throw new Error('NEBIUS_API_KEY is not configured')
@@ -324,7 +376,7 @@ async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
   }
 
   const client = new OpenAI({
-    baseURL: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
+    baseURL: settings.baseUrl,
     apiKey
   })
   const response = await client.chat.completions.create({
@@ -332,7 +384,7 @@ async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
     messages: [
       {
         role: 'system',
-        content: process.env.NEBIUS_SYSTEM_PROMPT ?? 'You are a helpful assistant.'
+        content: 'You are a helpful assistant.'
       },
       {
         role: 'user',
@@ -395,15 +447,16 @@ async function askAboutScreen(
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
   const imageUrl = await capturePrimaryScreen()
-  const apiKey = process.env.NEBIUS_API_KEY
-  const model = process.env.NEBIUS_MODEL_ID
+  const settings = getAISettings()
+  const apiKey = settings.apiKey
+  const model = settings.modelId
 
   if (!apiKey || !model) {
     throw new Error('NEBIUS_API_KEY and NEBIUS_MODEL_ID must be configured')
   }
 
   const client = new OpenAI({
-    baseURL: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
+    baseURL: settings.baseUrl,
     apiKey
   })
   const response = await client.chat.completions.create({
@@ -619,6 +672,43 @@ app.whenReady().then(() => {
 
   ipcMain.handle('voice:stop-session', () => {
     stopVoiceSession()
+  })
+
+  ipcMain.handle('settings:get-ai', () => getAISettings())
+
+  ipcMain.handle('settings:save-ai', (_event, settings: unknown) => {
+    if (
+      typeof settings !== 'object' ||
+      settings === null ||
+      !('baseUrl' in settings) ||
+      typeof settings.baseUrl !== 'string' ||
+      !settings.baseUrl.trim() ||
+      !('apiKey' in settings) ||
+      typeof settings.apiKey !== 'string' ||
+      !settings.apiKey.trim() ||
+      !('modelId' in settings) ||
+      typeof settings.modelId !== 'string' ||
+      !settings.modelId.trim()
+    ) {
+      throw new Error('AI settings require a base URL, API key, and model ID')
+    }
+
+    try {
+      const baseUrl = new URL(settings.baseUrl)
+      if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
+        throw new Error('unsupported protocol')
+      }
+    } catch {
+      throw new Error('AI base URL must be a valid HTTP or HTTPS URL')
+    }
+
+    const savedSettings = {
+      baseUrl: settings.baseUrl.trim(),
+      apiKey: settings.apiKey.trim(),
+      modelId: settings.modelId.trim()
+    }
+    saveAISettings(savedSettings)
+    return savedSettings
   })
 
   createWindow()

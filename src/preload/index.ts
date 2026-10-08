@@ -14,6 +14,12 @@ interface ScreenConversationMessage {
   content: string
 }
 
+interface AISettings {
+  baseUrl: string
+  apiKey: string
+  modelId: string
+}
+
 interface TTSStartEvent {
   requestId: string
   sampleRate: number
@@ -92,6 +98,11 @@ const api = {
       ipcRenderer.on('voice:event', listener)
       return () => ipcRenderer.removeListener('voice:event', listener)
     }
+  },
+  settings: {
+    getAI: (): Promise<AISettings> => ipcRenderer.invoke('settings:get-ai'),
+    saveAI: (settings: AISettings): Promise<AISettings> =>
+      ipcRenderer.invoke('settings:save-ai', settings)
   }
 }
 
