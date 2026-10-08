@@ -187,8 +187,7 @@ interface AIRequest {
 }
 
 interface BoundingBox {
-  topLeft: { x: number; y: number }
-  bottomRight: { x: number; y: number }
+  bbox: [number, number, number, number]
   label?: string
 }
 
@@ -204,16 +203,18 @@ CRITICAL INSTRUCTIONS:
 1. "text": Provide a direct, friendly, and naturally spoken answer suited for a voice assistant (like Siri). Use complete, fluid sentences, but strictly answer only what was asked—do not add extra facts or unrequested details.
 2. TTS PHONETIC FORMATTING: Spell out ALL numbers, dates, times, units, and symbols entirely as full words so the text-to-speech engine pronounces them correctly (e.g., write "seven fifteen p m" instead of "7:15 PM", "forty-two dollars" instead of "$42", "percent" instead of "%").
 3. "boxes": Highlight every relevant object, region, or visual element directly referenced in your spoken response.
-4. Coordinates MUST use a 1000x1000 grid, from 0 to 1000 on both axes. Top-left is (0,0) and bottom-right is (1000,1000).
-5. DO NOT return percentages or absolute pixel dimensions for bounding box coordinates.
+4. COORDINATE FORMAT:
+   - Coordinates MUST be formatted as [ymin, xmin, ymax, xmax] normalized to a 1000x1000 grid (values integer 0 to 1000).
+   - Top-left of the image is [0, 0] and bottom-right is [1000, 1000].
+   - DO NOT use percentages, decimals, or pixel values.
+   - DO NOT use [xmin, ymin, xmax, ymax] order.
 
 JSON Schema:
 {
   "text": "targeted spoken response spelled out phonetically for TTS",
   "boxes": [
     {
-      "topLeft": { "x": 0, "y": 0 },
-      "bottomRight": { "x": 0, "y": 0 },
+      "bbox": [ymin, xmin, ymax, xmax],
       "label": "descriptive label matching the spoken text"
     }
   ]
@@ -224,8 +225,7 @@ Example Output:
   "text": "The display shows the next train leaves at seven fifteen p m.",
   "boxes": [
     {
-      "topLeft": { "x": 438, "y": 577 },
-      "bottomRight": { "x": 663, "y": 653 },
+      "bbox": [438, 577, 663, 653],
       "label": "train departure time"
     }
   ]
@@ -260,25 +260,22 @@ function parseScreenResponse(content: string): ScreenAIResponse {
   }
 
   const boxes = parsed.boxes.filter((box): box is BoundingBox => {
-    if (typeof box !== 'object' || box === null || !('topLeft' in box) || !('bottomRight' in box)) {
+    if (
+      typeof box !== 'object' ||
+      box === null ||
+      !('bbox' in box) ||
+      !Array.isArray(box.bbox) ||
+      box.bbox.length !== 4
+    ) {
       return false
     }
 
-    const points = [box.topLeft, box.bottomRight]
-    return points.every(
-      (point) =>
-        typeof point === 'object' &&
-        point !== null &&
-        'x' in point &&
-        'y' in point &&
-        typeof point.x === 'number' &&
-        typeof point.y === 'number' &&
-        Number.isFinite(point.x) &&
-        Number.isFinite(point.y) &&
-        point.x >= 0 &&
-        point.x <= 1000 &&
-        point.y >= 0 &&
-        point.y <= 1000
+    return box.bbox.every(
+      (coordinate) =>
+        typeof coordinate === 'number' &&
+        Number.isFinite(coordinate) &&
+        coordinate >= 0 &&
+        coordinate <= 1000
     )
   })
 

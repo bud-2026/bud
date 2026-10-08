@@ -3,8 +3,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 declare global {
   interface BoundingBox {
     /** Coordinates from 0 to 1000 on a normalized 1000x1000 screen grid. */
-    topLeft: { x: number; y: number }
-    bottomRight: { x: number; y: number }
+    bbox: [number, number, number, number]
     label?: string
   }
 
@@ -42,6 +41,7 @@ declare global {
             | 'error'
           text?: string
           final?: boolean
+          end_session?: boolean
           message?: string
           wake_word?: string
         }) => void

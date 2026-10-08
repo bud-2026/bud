@@ -18,6 +18,14 @@ def value_from_line(line: Any) -> str:
     return str(getattr(line, "text", "")).strip()
 
 
+def is_stop_phrase(text: str, stop_phrases: set[str]) -> bool:
+    normalized = " ".join(text.lower().strip().split()).rstrip(".,!?;:")
+    return any(
+        normalized == phrase or normalized.endswith(f" {phrase}")
+        for phrase in stop_phrases
+    )
+
+
 def resolve_wake_word_model() -> tuple[Path, str]:
     configured_path = os.environ.get("WAKEWORD_MODEL_PATH", "backend/stt/models/hey_bud.onnx")
     model_file = Path(configured_path)
@@ -69,6 +77,14 @@ def run() -> None:
     wake_confirmation_frames = int(
         os.environ.get("WAKEWORD_CONFIRMATION_FRAMES", "5")
     )
+    stop_phrases = {
+        phrase.strip().lower()
+        for phrase in os.environ.get(
+            "STT_STOP_PHRASES",
+            "thank you,thanks,stop,that's all,goodbye",
+        ).split(",")
+        if phrase.strip()
+    }
     language = os.environ.get("MOONSHINE_LANGUAGE", "en")
     latest_text = ""
     last_speech_at = 0.0
@@ -106,59 +122,65 @@ def run() -> None:
             time.sleep(0.15)
 
             emit("wake_detected")
-            latest_text = ""
-            transcription_started_at = time.monotonic()
-            last_speech_at = transcription_started_at
-            completed_lines: list[str] = []
-            stop_transcription.clear()
+            conversation_active = True
+            while conversation_active:
+                latest_text = ""
+                transcription_started_at = time.monotonic()
+                last_speech_at = transcription_started_at
+                completed_lines: list[str] = []
+                stop_transcription.clear()
 
-            def update_transcript(value: str, final: bool) -> None:
-                nonlocal latest_text, last_speech_at
-                if not value:
-                    return
+                def update_transcript(value: str, final: bool) -> None:
+                    nonlocal latest_text, last_speech_at
+                    if not value:
+                        return
 
-                if final:
-                    completed_lines.append(value)
-                    transcript = " ".join(completed_lines)
-                else:
-                    transcript = " ".join([*completed_lines, value])
+                    if final:
+                        completed_lines.append(value)
+                        transcript = " ".join(completed_lines)
+                    else:
+                        transcript = " ".join([*completed_lines, value])
 
-                latest_text = transcript
-                last_speech_at = time.monotonic()
-                emit("transcript", text=transcript, final=final)
+                    latest_text = transcript
+                    last_speech_at = time.monotonic()
+                    emit("transcript", text=transcript, final=final)
 
-            def on_text(text: str) -> None:
-                value = value_from_line(text)
-                update_transcript(value, final=False)
+                def on_text(text: str) -> None:
+                    update_transcript(value_from_line(text), final=False)
 
-            def on_line(line: Any) -> None:
-                value = value_from_line(line)
-                update_transcript(value, final=True)
+                def on_line(line: Any) -> None:
+                    update_transcript(value_from_line(line), final=True)
 
-            transcriber = (
-                MicTranscriber()
-                .language(language)
-                .model_arch(ModelArch.SMALL_STREAMING)
-                .update_interval(0.25)
-                .on_text(on_text)
-                .on_line(on_line)
-            )
-            transcriber.load()
-            transcriber.start()
-            emit("transcribing")
+                transcriber = (
+                    MicTranscriber()
+                    .language(language)
+                    .model_arch(ModelArch.SMALL_STREAMING)
+                    .update_interval(0.25)
+                    .on_text(on_text)
+                    .on_line(on_line)
+                )
+                transcriber.load()
+                transcriber.start()
+                emit("transcribing")
 
-            while not stop_transcription.wait(0.1):
-                now = time.monotonic()
-                can_finish = now - transcription_started_at >= minimum_transcription_time
-                if latest_text and can_finish and now - last_speech_at >= silence_timeout:
-                    break
+                while not stop_transcription.wait(0.1):
+                    now = time.monotonic()
+                    can_finish = now - transcription_started_at >= minimum_transcription_time
+                    if latest_text and can_finish and now - last_speech_at >= silence_timeout:
+                        break
 
-            transcriber.stop()
-            transcriber.close()
-            if latest_text:
-                emit("final", text=latest_text)
-            else:
-                emit("error", message="No speech was transcribed after wake word")
+                transcriber.stop()
+                transcriber.close()
+                if not latest_text:
+                    emit("error", message="No speech was transcribed")
+                    conversation_active = False
+                    continue
+
+                should_end_conversation = is_stop_phrase(latest_text, stop_phrases)
+                emit("final", text=latest_text, end_session=should_end_conversation)
+                if should_end_conversation:
+                    emit("conversation_ended")
+                    conversation_active = False
     except KeyboardInterrupt:
         emit("stopped")
     except Exception as error:

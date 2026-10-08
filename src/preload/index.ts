@@ -4,8 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 interface ScreenAIResponse {
   text: string
   boxes: Array<{
-    topLeft: { x: number; y: number }
-    bottomRight: { x: number; y: number }
+    bbox: [number, number, number, number]
     label?: string
   }>
 }
@@ -32,6 +31,7 @@ interface VoiceEvent {
     | 'error'
   text?: string
   final?: boolean
+  end_session?: boolean
   message?: string
   wake_word?: string
 }

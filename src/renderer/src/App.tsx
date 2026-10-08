@@ -21,6 +21,8 @@ function App(): React.JSX.Element {
   const voiceOrbStateRef = useRef(voiceOrbState)
   const isLoadingRef = useRef(false)
   const isSpeakingRef = useRef(false)
+  const voiceSessionActiveRef = useRef(false)
+  const voiceSessionEndedRef = useRef(false)
   const orbHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const boxesClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingBoxClearRef = useRef(false)
@@ -46,6 +48,8 @@ function App(): React.JSX.Element {
     () =>
       window.api.voice.onEvent((event) => {
         if (event.event === 'error') {
+          voiceSessionActiveRef.current = false
+          voiceSessionEndedRef.current = false
           setVoiceStatus('Voice error')
           setError(event.message ?? 'Voice listener failed')
           return
@@ -56,12 +60,21 @@ function App(): React.JSX.Element {
         }
 
         if (event.event === 'transcript' && event.text) {
+          if (voiceSessionEndedRef.current) return
+          voiceSessionActiveRef.current = true
           if (voiceOrbStateRef.current !== 'analyzing' && !isSpeakingRef.current) {
             setOrbState('listening')
           }
           setVoiceTranscript(event.text)
         }
         if (event.event === 'final' && event.text) {
+          if (event.end_session) {
+            voiceSessionActiveRef.current = false
+            voiceSessionEndedRef.current = true
+            setVoiceStatus('Conversation ended · say the wake word to start again')
+            setOrbState('hidden')
+            return
+          }
           setOrbState('analyzing')
           setVoiceTranscript(event.text)
           setQuestion(event.text)
@@ -91,7 +104,12 @@ function App(): React.JSX.Element {
           wake_detected: 'Wake word detected',
           transcribing: 'Listening for your question...'
         }
-        if (event.event === 'wake_detected' || event.event === 'transcribing') {
+        if (event.event === 'wake_detected') {
+          voiceSessionEndedRef.current = false
+          voiceSessionActiveRef.current = true
+          if (!isLoadingRef.current && !isSpeakingRef.current) setOrbState('listening')
+        } else if (event.event === 'transcribing' && !voiceSessionEndedRef.current) {
+          voiceSessionActiveRef.current = true
           if (!isLoadingRef.current && !isSpeakingRef.current) setOrbState('listening')
         }
         setVoiceStatus(statuses[event.event] ?? event.event)
@@ -140,6 +158,10 @@ function App(): React.JSX.Element {
         }
         setIsSpeaking(false)
         isSpeakingRef.current = false
+        if (voiceSessionActiveRef.current) {
+          setOrbState('listening')
+          return
+        }
         setIsOrbExiting(true)
         orbHideTimerRef.current = setTimeout(() => {
           setIsOrbExiting(false)
@@ -276,12 +298,7 @@ function App(): React.JSX.Element {
         </div>
       </section>
       {result?.boxes.map((box, index) => (
-        <Indicator
-          key={`${box.topLeft.x}-${box.topLeft.y}-${index}`}
-          topLeft={box.topLeft}
-          bottomRight={box.bottomRight}
-          label={box.label}
-        />
+        <Indicator key={`${box.bbox.join('-')}-${index}`} bbox={box.bbox} label={box.label} />
       ))}
     </main>
   )
