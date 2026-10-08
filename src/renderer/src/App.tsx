@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import Indicator from './components/Indicator'
 import VoiceOrb from './components/VoiceOrb'
 import { askScreen } from './lib/ai'
@@ -29,11 +29,22 @@ function App(): React.JSX.Element {
   const screenConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
   const voiceConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
 
-  const setOrbState = (state: 'hidden' | 'listening' | 'analyzing' | 'responding'): void => {
-    voiceOrbStateRef.current = state
-    if (state !== 'hidden') setIsOrbExiting(false)
-    setVoiceOrbState(state)
-  }
+  const setOrbState = useCallback(
+    (state: 'hidden' | 'listening' | 'analyzing' | 'responding'): void => {
+      voiceOrbStateRef.current = state
+      if (state !== 'hidden') setIsOrbExiting(false)
+      setVoiceOrbState(state)
+    },
+    []
+  )
+  const hideOrbWithAnimation = useCallback((): void => {
+    if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
+    setIsOrbExiting(true)
+    orbHideTimerRef.current = setTimeout(() => {
+      setIsOrbExiting(false)
+      setOrbState('hidden')
+    }, 220)
+  }, [setOrbState])
   const scheduleBoundingBoxClear = (): void => {
     if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
     boxesClearTimerRef.current = setTimeout(() => {
@@ -76,7 +87,7 @@ function App(): React.JSX.Element {
             voiceSessionEndedRef.current = true
             voiceConversationHistoryRef.current = []
             setVoiceStatus('Conversation ended · say the wake word to start again')
-            setOrbState('hidden')
+            hideOrbWithAnimation()
             return
           }
           setOrbState('analyzing')
@@ -128,7 +139,7 @@ function App(): React.JSX.Element {
         }
         setVoiceStatus(statuses[event.event] ?? event.event)
       }),
-    []
+    [hideOrbWithAnimation, setOrbState]
   )
   useEffect(() => {
     const unsubscribeStart = window.api.tts.onStart(({ sampleRate }) => {
@@ -176,11 +187,7 @@ function App(): React.JSX.Element {
           setOrbState('listening')
           return
         }
-        setIsOrbExiting(true)
-        orbHideTimerRef.current = setTimeout(() => {
-          setIsOrbExiting(false)
-          setOrbState('hidden')
-        }, 220)
+        hideOrbWithAnimation()
       }, remainingAudioMs)
     })
     const unsubscribeError = window.api.tts.onError((message) => {
@@ -203,7 +210,7 @@ function App(): React.JSX.Element {
       if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
       void audioContextRef.current?.close()
     }
-  }, [])
+  }, [hideOrbWithAnimation, setOrbState])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
