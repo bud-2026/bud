@@ -123,26 +123,6 @@ body {
   animation: voice-orb-antenna-pulse 1.4s ease-in-out infinite;
 }
 
-.voice-orb__ear {
-  position: absolute;
-  z-index: 0;
-  top: 39px;
-  width: 9px;
-  height: 17px;
-  border: 2px solid rgba(210, 255, 246, 0.7);
-  border-radius: 5px;
-  background: #3983b8;
-}
-
-.voice-orb__ear--left {
-  left: 1px;
-  animation: voice-orb-ear-left 1.8s ease-in-out infinite;
-}
-
-.voice-orb__ear--right {
-  right: 1px;
-  animation: voice-orb-ear-right 1.8s ease-in-out infinite;
-}
 
 .voice-orb__microphone {
   position: relative;

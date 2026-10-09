@@ -383,7 +383,9 @@ Classify as "screen" if:
 - You are unsure whether the user is referring to something on their screen versus a general concept.
 
 Classify as "general" ONLY if:
-- The question is unambiguously a self-contained factual, conceptual, or general knowledge query completely independent of the screen or current device state (e.g., "Why is the sky blue?", "How many miles is a marathon?", "Explain quantum computing").`
+- The question is unambiguously a self-contained factual, conceptual, or general knowledge query completely independent of the screen or current device state (e.g., "Why is the sky blue?", "How many miles is a marathon?", "Explain quantum computing").
+
+Return JSON: {"type": "screen" | "general"}`
 
 const generalSystemPrompt = `You are Bud, a friendly, intelligent, and direct voice assistant. You assist users with general information and help them read, analyze, or locate items on their screen.
 
@@ -554,7 +556,10 @@ function createAIClient(
   }
 }
 
-async function classifyQuestion(prompt: string): Promise<QuestionType> {
+async function classifyQuestion(
+  prompt: string,
+  history: ScreenConversationMessage[]
+): Promise<QuestionType> {
   const { client, model } = createAIClient(
     getDedicatedAISettings('CLASSIFICATION'),
     'classification'
@@ -582,12 +587,26 @@ async function classifyQuestion(prompt: string): Promise<QuestionType> {
       }
     },
     messages: [
-      { role: 'system', content: questionClassificationSystemPrompt },
+      {
+        role: 'system',
+        content: `${questionClassificationSystemPrompt}
+
+Prior messages in this conversation may or may not be related to the user's current request.
+Use prior messages to resolve references (such as "that", "it", or "the previous item") and context.
+Determine whether a follow-up question relies on prior screen context or previous non-screen discussions, and answer accordingly.
+Regardless of context, always return the exact same JSON object structure. Never return plain conversational text.`
+      },
+      ...history.filter((msg) => msg.role === 'user'),
       { role: 'user', content: prompt }
     ]
   })
 
   const rawContent = response.choices[0]?.message.content
+  console.log(
+    'Question classification raw content:',
+    rawContent,
+    ...history.filter((msg) => msg.role === 'user')
+  )
 
   if (!rawContent) {
     throw new Error('AI failed to return content for question classification')
@@ -621,6 +640,7 @@ async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
   })
   const response = await client.chat.completions.create({
     model,
+    reasoning_effort: 'none',
     messages: [
       {
         role: 'system',
@@ -664,6 +684,7 @@ async function askGeneral(
 
   const response = await client.chat.completions.create({
     model,
+    reasoning_effort: 'none',
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -712,7 +733,7 @@ async function askQuestion(
   prompt: string,
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
-  const questionType = await classifyQuestion(prompt)
+  const questionType = await classifyQuestion(prompt, history)
   return questionType === 'screen' ? askAboutScreen(prompt, history) : askGeneral(prompt, history)
 }
 
@@ -762,6 +783,7 @@ async function askAboutScreen(
 
   const response = await client.chat.completions.create({
     model,
+    reasoning_effort: 'none',
     response_format: {
       type: 'json_schema',
       json_schema: {

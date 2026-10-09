@@ -14,8 +14,6 @@ function VoiceOrb({ state, exiting = false }: VoiceOrbProps): React.JSX.Element 
       <div className="voice-orb__antenna">
         <span />
       </div>
-      <div className="voice-orb__ear voice-orb__ear--left" />
-      <div className="voice-orb__ear voice-orb__ear--right" />
       <div className="voice-orb__shell">
         <div className="voice-orb__screen">
           {state === 'listening' && (
