@@ -56,6 +56,9 @@ const api = {
       ipcRenderer.invoke('ai:ask-screen', { prompt, history })
   },
   overlay: {
+    setInteractive: (interactive: boolean): void => {
+      ipcRenderer.send('overlay:set-interactive', interactive)
+    },
     onDebugVisibilityChanged: (callback: (visible: boolean) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => {
         callback(visible)

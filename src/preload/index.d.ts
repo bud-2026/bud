@@ -5,6 +5,7 @@ declare global {
     /** Coordinates from 0 to 1000 on a normalized 1000x1000 screen grid. */
     bbox: [number, number, number, number]
     label?: string
+    copy?: string
   }
 
   interface ScreenAIResponse {
@@ -17,11 +18,11 @@ declare global {
     content: string
   }
 
-    interface AISettings {
-      baseUrl: string
-      apiKey: string
-      modelId: string
-    }
+  interface AISettings {
+    baseUrl: string
+    apiKey: string
+    modelId: string
+  }
 
   interface Api {
     ai: {
@@ -32,6 +33,7 @@ declare global {
       ) => Promise<ScreenAIResponse>
     }
     overlay: {
+      setInteractive: (interactive: boolean) => void
       onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
     }
     tts: {

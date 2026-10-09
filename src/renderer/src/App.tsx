@@ -84,6 +84,24 @@ function App(): React.JSX.Element {
 
   useEffect(() => window.api.overlay.onDebugVisibilityChanged(setIsDebugOpen), [])
   useEffect(() => {
+    if (isDebugOpen) return
+
+    let interactive = false
+    const handleMouseMove = (event: MouseEvent): void => {
+      const nextInteractive =
+        event.target instanceof Element && Boolean(event.target.closest('.indicator__copy-btn'))
+      if (nextInteractive === interactive) return
+      interactive = nextInteractive
+      window.api.overlay.setInteractive(interactive)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      if (interactive) window.api.overlay.setInteractive(false)
+    }
+  }, [isDebugOpen])
+  useEffect(() => {
     void window.api.settings
       .getAI()
       .then(setAiSettings)
@@ -408,7 +426,12 @@ function App(): React.JSX.Element {
         </div>
       </section>
       {result?.boxes.map((box, index) => (
-        <Indicator key={`${box.bbox.join('-')}-${index}`} bbox={box.bbox} label={box.label} />
+        <Indicator
+          key={`${box.bbox.join('-')}-${index}`}
+          bbox={box.bbox}
+          label={box.label}
+          copy={box.copy}
+        />
       ))}
     </main>
   )

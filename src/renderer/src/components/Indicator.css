@@ -34,6 +34,34 @@
   white-space: nowrap;
 }
 
+.indicator__copy-btn {
+  pointer-events: auto;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border: 1px solid rgba(8, 28, 22, 0.45);
+  border-radius: 4px;
+  color: #63e6be;
+  background: #081c16;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 700;
+  cursor: copy;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.indicator__copy-btn:hover {
+  color: #081c16;
+  background: #b2f5df;
+}
+
+.indicator__copy-btn:focus-visible {
+  outline: 2px solid #081c16;
+  outline-offset: 2px;
+}
+
 @keyframes indicator-pulse {
   0% {
     opacity: 0.85;

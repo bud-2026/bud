@@ -187,7 +187,9 @@ function createWindow(): void {
   // fullscreen applications and regular always-on-top windows.
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
+  let debugVisible = false
   const setDebugVisible = (visible: boolean): void => {
+    debugVisible = visible
     mainWindow.setIgnoreMouseEvents(!visible, { forward: true })
 
     if (visible) {
@@ -199,6 +201,17 @@ function createWindow(): void {
 
     mainWindow.webContents.send('overlay:debug-visibility-changed', visible)
   }
+
+  ipcMain.on('overlay:set-interactive', (event, interactive: unknown) => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      debugVisible ||
+      typeof interactive !== 'boolean'
+    ) {
+      return
+    }
+    mainWindow.setIgnoreMouseEvents(!interactive, { forward: true })
+  })
 
   mainWindow.on('ready-to-show', () => {
     setDebugVisible(false)
@@ -247,6 +260,7 @@ interface AISettings {
 interface BoundingBox {
   bbox: [number, number, number, number]
   label?: string
+  copy?: string
 }
 
 interface ScreenAIResponse {
@@ -270,33 +284,49 @@ CRITICAL INSTRUCTIONS:
    - For direct factual or visual-reading requests (e.g., "Bud, what time is it?", "Read the title"), state the answer directly without introductory filler.
 
 2. TTS PHONETIC FORMATTING:
-   - Convert ALL numbers, dates, times, units, currencies, and symbols into full phonetic words for the text-to-speech engine.
+   - Convert ALL numbers, dates, times, units, currencies, and symbols into full phonetic words for the text-to-speech engine in the "text" field.
    - Examples: write "seven fifteen p m" (not "7:15 PM"), "forty-two dollars" (not "$42"), "percent" (not "%"), "twenty-twenty-six" (not "2026").
 
 3. VISUAL GROUNDING ("boxes"):
    - Highlight any specific region, UI element, text block, or object directly mentioned in your response.
-   - Bounding box coordinates MUST follow [ymin, xmin, ymax, xmax] format normalized on a 1000x1000 grid (integers 0 to 1000).
+   - For each box, specify the "label" and "copy" text FIRST, then output the "bbox" coordinates.
+   - Set "copy" to null UNLESS the user explicitly asks to copy, read, extract, or transcribe text. When text extraction IS requested, include the exact, raw text in "copy" (with original symbols, numbers, and formatting).
+   - Bounding box coordinates MUST follow native [xmin, ymin, xmax, ymax] format normalized on a 1000x1000 grid (integers 0 to 1000).
    - Top-left is [0, 0] and bottom-right is [1000, 1000].
-   - Do NOT use percentages, decimals, pixel dimensions, or [xmin, ymin, xmax, ymax] order.
+   - Do NOT use percentages, decimals, pixel dimensions, or [ymin, xmin, ymax, xmax] order.
 
 JSON Schema:
 {
   "text": "spoken response formatted phonetically for text-to-speech",
   "boxes": [
     {
-      "bbox": [ymin, xmin, ymax, xmax],
-      "label": "descriptive label matching the spoken text"
+      "label": "descriptive label matching the spoken text",
+      "copy": "exact raw text extracted ONLY if requested by user, otherwise null",
+      "bbox": [xmin, ymin, xmax, ymax]
     }
   ]
 }
 
-Example Output:
+Example Output (General Localization - No copy requested):
+{
+  "text": "There is a submit button in the top right.",
+  "boxes": [
+    {
+      "label": "submit button",
+      "copy": null,
+      "bbox": [800, 50, 950, 120]
+    }
+  ]
+}
+
+Example Output (Text Extraction Requested):
 {
   "text": "The meeting starts at three thirty p m.",
   "boxes": [
     {
-      "bbox": [210, 145, 380, 520],
-      "label": "meeting start time"
+      "label": "meeting start time",
+      "copy": "3:30 PM",
+      "bbox": [145, 210, 520, 380]
     }
   ]
 }
@@ -335,31 +365,52 @@ function parseScreenResponse(content: string): ScreenAIResponse {
     throw new Error('The AI returned an invalid screen analysis shape')
   }
 
-  const boxes = parsed.boxes.filter((box): box is BoundingBox => {
+  const validatedBoxes: BoundingBox[] = []
+
+  for (const box of parsed.boxes) {
     if (
       typeof box !== 'object' ||
       box === null ||
+      !('label' in box) ||
+      typeof box.label !== 'string' ||
       !('bbox' in box) ||
       !Array.isArray(box.bbox) ||
       box.bbox.length !== 4
     ) {
-      return false
+      throw new Error('The AI returned an invalid bounding box shape')
     }
 
-    return box.bbox.every(
+    const isValidBbox = box.bbox.every(
       (coordinate) =>
         typeof coordinate === 'number' &&
         Number.isFinite(coordinate) &&
         coordinate >= 0 &&
         coordinate <= 1000
     )
-  })
 
-  if (boxes.length !== parsed.boxes.length) {
-    throw new Error('The AI returned an invalid bounding box')
+    if (!isValidBbox) {
+      throw new Error('The AI returned an invalid bounding box coordinate range')
+    }
+
+    let copy: string | undefined = undefined
+    if ('copy' in box && box.copy !== null && box.copy !== undefined) {
+      if (typeof box.copy !== 'string') {
+        throw new Error('The AI returned an invalid copy value in bounding box')
+      }
+      copy = box.copy
+    }
+
+    validatedBoxes.push({
+      label: box.label,
+      bbox: box.bbox as [number, number, number, number],
+      ...(copy !== undefined ? { copy } : {})
+    })
   }
 
-  return { text: parsed.text, boxes }
+  return {
+    text: parsed.text,
+    boxes: validatedBoxes
+  }
 }
 
 async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
@@ -459,6 +510,7 @@ async function askAboutScreen(
     baseURL: settings.baseUrl,
     apiKey
   })
+
   const response = await client.chat.completions.create({
     model,
     temperature: 0,
@@ -482,9 +534,18 @@ async function askAboutScreen(
                 type: 'object',
                 additionalProperties: false,
                 properties: {
+                  label: {
+                    type: 'string',
+                    description: 'A concise label for the highlighted region.'
+                  },
+                  copy: {
+                    type: ['string', 'null'],
+                    description:
+                      'Exact raw extracted text from the region, or null if non-text object.'
+                  },
                   bbox: {
                     type: 'array',
-                    description: '[ymin, xmin, ymax, xmax], normalized from 0 to 1000.',
+                    description: '[xmin, ymin, xmax, ymax], normalized from 0 to 1000.',
                     items: {
                       type: 'number',
                       minimum: 0,
@@ -492,13 +553,9 @@ async function askAboutScreen(
                     },
                     minItems: 4,
                     maxItems: 4
-                  },
-                  label: {
-                    type: 'string',
-                    description: 'A concise label for the highlighted region.'
                   }
                 },
-                required: ['bbox', 'label']
+                required: ['label', 'copy', 'bbox']
               }
             }
           },
@@ -525,6 +582,7 @@ Regardless of context, always return the exact same JSON object structure. Never
       }
     ]
   })
+
   const content = response.choices[0]?.message.content
 
   if (!content || typeof content !== 'string') {
