@@ -22,11 +22,21 @@ declare global {
     baseUrl: string
     apiKey: string
     modelId: string
+    classificationBaseUrl: string
+    classificationApiKey: string
+    classificationModelId: string
+    generalBaseUrl: string
+    generalApiKey: string
+    generalModelId: string
   }
 
   interface Api {
     ai: {
       ask: (prompt: string, imageUrl?: string) => Promise<string>
+      askQuestion: (
+        prompt: string,
+        history?: ScreenConversationMessage[]
+      ) => Promise<ScreenAIResponse>
       askScreen: (
         prompt: string,
         history?: ScreenConversationMessage[]

@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import Indicator from './components/Indicator'
 import VoiceOrb from './components/VoiceOrb'
-import { askScreen } from './lib/ai'
+import { askQuestion } from './lib/ai'
 
 const VOICE_HISTORY_MESSAGE_LIMIT = 20
 
@@ -11,7 +11,13 @@ function App(): React.JSX.Element {
   const [aiSettings, setAiSettings] = useState<AISettings>({
     baseUrl: '',
     apiKey: '',
-    modelId: ''
+    modelId: '',
+    classificationBaseUrl: '',
+    classificationApiKey: '',
+    classificationModelId: '',
+    generalBaseUrl: '',
+    generalApiKey: '',
+    generalModelId: ''
   })
   const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [result, setResult] = useState<ScreenAIResponse | null>(null)
@@ -155,7 +161,7 @@ function App(): React.JSX.Element {
           isLoadingRef.current = true
           pendingBoxClearRef.current = true
           setError(null)
-          void askScreen(userText, voiceConversationHistoryRef.current)
+          void askQuestion(userText, voiceConversationHistoryRef.current)
             .then((screenResponse) => {
               voiceConversationHistoryRef.current = [
                 ...voiceConversationHistoryRef.current,
@@ -284,7 +290,7 @@ function App(): React.JSX.Element {
     if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
     pendingBoxClearRef.current = true
     try {
-      const screenResponse = await askScreen(prompt, screenConversationHistoryRef.current)
+      const screenResponse = await askQuestion(prompt, screenConversationHistoryRef.current)
       screenConversationHistoryRef.current = [
         ...screenConversationHistoryRef.current,
         { role: 'user' as const, content: prompt },
@@ -344,7 +350,96 @@ function App(): React.JSX.Element {
         aria-hidden={!isDebugOpen}
       >
         <div className="debug-panel__content">
+          <h1 className="debug-panel__title">Settings Panel</h1>
+          <form className="question-panel" onSubmit={handleSettingsSubmit}>
+            <h2 className="question-panel__title">AI Settings</h2>
+            <div className="ai-settings__group">
+              <strong>Screen analysis</strong>
+              <input
+                value={aiSettings.baseUrl}
+                onChange={(event) => setAiSettings({ ...aiSettings, baseUrl: event.target.value })}
+                placeholder="Screen base URL"
+                disabled={isSavingSettings}
+              />
+              <input
+                type="password"
+                value={aiSettings.apiKey}
+                onChange={(event) => setAiSettings({ ...aiSettings, apiKey: event.target.value })}
+                placeholder="Screen API key"
+                disabled={isSavingSettings}
+              />
+              <input
+                value={aiSettings.modelId}
+                onChange={(event) => setAiSettings({ ...aiSettings, modelId: event.target.value })}
+                placeholder="Screen model ID"
+                disabled={isSavingSettings}
+              />
+            </div>
+            <div className="ai-settings__group">
+              <strong>Classification</strong>
+              <input
+                value={aiSettings.classificationBaseUrl}
+                onChange={(event) =>
+                  setAiSettings({ ...aiSettings, classificationBaseUrl: event.target.value })
+                }
+                placeholder="Classification base URL"
+                disabled={isSavingSettings}
+              />
+              <input
+                type="password"
+                value={aiSettings.classificationApiKey}
+                onChange={(event) =>
+                  setAiSettings({ ...aiSettings, classificationApiKey: event.target.value })
+                }
+                placeholder="Classification API key"
+                disabled={isSavingSettings}
+              />
+              <input
+                value={aiSettings.classificationModelId}
+                onChange={(event) =>
+                  setAiSettings({ ...aiSettings, classificationModelId: event.target.value })
+                }
+                placeholder="Classification model ID"
+                disabled={isSavingSettings}
+              />
+            </div>
+            <div className="ai-settings__group">
+              <strong>General responses</strong>
+              <input
+                value={aiSettings.generalBaseUrl}
+                onChange={(event) =>
+                  setAiSettings({ ...aiSettings, generalBaseUrl: event.target.value })
+                }
+                placeholder="General base URL"
+                disabled={isSavingSettings}
+              />
+              <input
+                type="password"
+                value={aiSettings.generalApiKey}
+                onChange={(event) =>
+                  setAiSettings({ ...aiSettings, generalApiKey: event.target.value })
+                }
+                placeholder="General API key"
+                disabled={isSavingSettings}
+              />
+              <input
+                value={aiSettings.generalModelId}
+                onChange={(event) =>
+                  setAiSettings({ ...aiSettings, generalModelId: event.target.value })
+                }
+                placeholder="General model ID"
+                disabled={isSavingSettings}
+              />
+            </div>
+            <div className="question-panel__controls">
+              <button type="submit" disabled={isSavingSettings}>
+                Save
+              </button>
+            </div>
+          </form>
+
           <form className="question-panel" onSubmit={handleSubmit}>
+            <h2 className="question-panel__title">Debug</h2>
             <label htmlFor="screen-question">
               Ask about your screen
               <span className="question-panel__shortcut">
@@ -381,36 +476,6 @@ function App(): React.JSX.Element {
               />
               <button type="submit" disabled={isTtsLoading || !ttsText.trim()}>
                 Speak
-              </button>
-            </div>
-          </form>
-          <form className="question-panel" onSubmit={handleSettingsSubmit}>
-            <label htmlFor="ai-base-url">AI settings</label>
-            <input
-              id="ai-base-url"
-              value={aiSettings.baseUrl}
-              onChange={(event) => setAiSettings({ ...aiSettings, baseUrl: event.target.value })}
-              placeholder="https://api.example.com/v1/"
-              disabled={isSavingSettings}
-            />
-            <input
-              type="password"
-              value={aiSettings.apiKey}
-              onChange={(event) => setAiSettings({ ...aiSettings, apiKey: event.target.value })}
-              placeholder="API key"
-              disabled={isSavingSettings}
-              aria-label="AI API key"
-            />
-            <div className="question-panel__controls">
-              <input
-                value={aiSettings.modelId}
-                onChange={(event) => setAiSettings({ ...aiSettings, modelId: event.target.value })}
-                placeholder="Model ID"
-                disabled={isSavingSettings}
-                aria-label="AI model ID"
-              />
-              <button type="submit" disabled={isSavingSettings}>
-                Save
               </button>
             </div>
           </form>

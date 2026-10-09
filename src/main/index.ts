@@ -32,8 +32,20 @@ function getAISettingsPath(): string {
 function getAISettings(): AISettings {
   const defaults: AISettings = {
     baseUrl: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
-    apiKey: process.env.NEBIUS_API_KEY ?? '',
-    modelId: process.env.NEBIUS_MODEL_ID ?? ''
+    apiKey: process.env.API_KEY ?? '',
+    modelId: process.env.MODEL_ID ?? '',
+    classificationBaseUrl:
+      process.env.CLASSIFICATION_BASE_URL ??
+      process.env.AI_BASE_URL ??
+      'https://api.tokenfactory.nebius.com/v1/',
+    classificationApiKey: process.env.CLASSIFICATION_API_KEY ?? '',
+    classificationModelId: process.env.CLASSIFICATION_MODEL_ID ?? '',
+    generalBaseUrl:
+      process.env.GENERAL_BASE_URL ??
+      process.env.AI_BASE_URL ??
+      'https://api.tokenfactory.nebius.com/v1/',
+    generalApiKey: process.env.GENERAL_API_KEY ?? '',
+    generalModelId: process.env.GENERAL_MODEL_ID ?? ''
   }
 
   try {
@@ -41,7 +53,25 @@ function getAISettings(): AISettings {
     return {
       baseUrl: typeof stored.baseUrl === 'string' ? stored.baseUrl : defaults.baseUrl,
       apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : defaults.apiKey,
-      modelId: typeof stored.modelId === 'string' ? stored.modelId : defaults.modelId
+      modelId: typeof stored.modelId === 'string' ? stored.modelId : defaults.modelId,
+      classificationBaseUrl:
+        typeof stored.classificationBaseUrl === 'string'
+          ? stored.classificationBaseUrl
+          : defaults.classificationBaseUrl,
+      classificationApiKey:
+        typeof stored.classificationApiKey === 'string'
+          ? stored.classificationApiKey
+          : defaults.classificationApiKey,
+      classificationModelId:
+        typeof stored.classificationModelId === 'string'
+          ? stored.classificationModelId
+          : defaults.classificationModelId,
+      generalBaseUrl:
+        typeof stored.generalBaseUrl === 'string' ? stored.generalBaseUrl : defaults.generalBaseUrl,
+      generalApiKey:
+        typeof stored.generalApiKey === 'string' ? stored.generalApiKey : defaults.generalApiKey,
+      generalModelId:
+        typeof stored.generalModelId === 'string' ? stored.generalModelId : defaults.generalModelId
     }
   } catch {
     return defaults
@@ -255,6 +285,12 @@ interface AISettings {
   baseUrl: string
   apiKey: string
   modelId: string
+  classificationBaseUrl: string
+  classificationApiKey: string
+  classificationModelId: string
+  generalBaseUrl: string
+  generalApiKey: string
+  generalModelId: string
 }
 
 interface BoundingBox {
@@ -333,6 +369,40 @@ Example Output (Text Extraction Requested):
 
 Use an empty "boxes" array when no relevant visual objects are present. Respond strictly with raw JSON.
 `
+
+const questionClassificationSystemPrompt = `You are a strict text classification assistant.
+Analyze the user's question and determine if it pertains to the visual screen/UI display or dynamic system state, vs. a general knowledge question.
+
+DEFAULT RULE:
+If there is any ambiguity, doubt, or implicit reference to context (e.g., short queries, follow-up questions, or vague pronouns), ALWAYS default to "screen".
+
+Classify as "screen" if:
+- The question asks about visual UI elements, text, buttons, images, errors, or content on the display.
+- The question relies on visual context or implicitly refers to something being viewed (e.g., "What does this mean?", "Where do I click?", "Read this label", "How do I fix this?").
+- The question asks about real-time system state visible on a device status bar or widget (e.g., "What time is it?", "What is the date?", "What is my battery level?", "What network am I connected to?").
+- You are unsure whether the user is referring to something on their screen versus a general concept.
+
+Classify as "general" ONLY if:
+- The question is unambiguously a self-contained factual, conceptual, or general knowledge query completely independent of the screen or current device state (e.g., "Why is the sky blue?", "How many miles is a marathon?", "Explain quantum computing").`
+
+const generalSystemPrompt = `You are Bud, a friendly, intelligent, and direct voice assistant. You assist users with general information and help them read, analyze, or locate items on their screen.
+
+SCOPE OF THIS MODE:
+- You are handling general information and everyday queries independent of the user's screen display.
+- Do not make references to visual elements or screen layouts unless explicitly brought up by the user.
+
+CRITICAL INSTRUCTIONS:
+1. VOICE & PERSONALITY ("text"):
+   - Speak as Bud: warm, direct, helpful, and natural.
+   - Limit answers strictly to what was asked without volunteer trivia or unnecessary details.
+   - For capability/permission questions (e.g., "Can you..."), vary your starting response naturally using context-neutral openers (e.g., "Yes,", "Sure,", "I've got it,", "Absolutely,"). Never repeat the same opener consecutively.
+   - For direct factual requests (e.g., "Bud, what is the capital of France?"), state the answer directly without introductory filler.
+
+2. TTS PHONETIC FORMATTING:
+   - Convert ALL numbers, dates, times, units, currencies, and symbols into full phonetic words for the text-to-speech engine in the "text" field.
+  - Examples: write "seven fifteen p m" (not "7:15 PM"), "forty-two dollars" (not "$42"), "percent" (not "%"), "twenty-twenty-six" (not "2026").`
+
+type QuestionType = 'screen' | 'general'
 
 function parseScreenResponse(content: string): ScreenAIResponse {
   const cleanedContent = content
@@ -413,17 +483,93 @@ function parseScreenResponse(content: string): ScreenAIResponse {
   }
 }
 
+function getDedicatedAISettings(prefix: 'CLASSIFICATION' | 'GENERAL'): AISettings {
+  const settings = getAISettings()
+  const isClassification = prefix === 'CLASSIFICATION'
+  return {
+    baseUrl: isClassification ? settings.classificationBaseUrl : settings.generalBaseUrl,
+    apiKey: isClassification ? settings.classificationApiKey : settings.generalApiKey,
+    modelId: isClassification ? settings.classificationModelId : settings.generalModelId,
+    classificationBaseUrl: '',
+    classificationApiKey: '',
+    classificationModelId: '',
+    generalBaseUrl: '',
+    generalApiKey: '',
+    generalModelId: ''
+  }
+}
+
+function createAIClient(
+  settings: AISettings,
+  provider: 'classification' | 'general'
+): { client: OpenAI; model: string } {
+  if (!settings.apiKey) throw new Error(`${provider} API key is not configured`)
+  if (!settings.modelId) throw new Error(`${provider} model ID is not configured`)
+  return {
+    client: new OpenAI({ baseURL: settings.baseUrl, apiKey: settings.apiKey }),
+    model: settings.modelId
+  }
+}
+
+async function classifyQuestion(prompt: string): Promise<QuestionType> {
+  const { client, model } = createAIClient(
+    getDedicatedAISettings('CLASSIFICATION'),
+    'classification'
+  )
+
+  const response = await client.chat.completions.create({
+    model,
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'question_classification',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['screen', 'general'],
+              description: 'The classification category for the user prompt.'
+            }
+          },
+          required: ['type'],
+          additionalProperties: false
+        }
+      }
+    },
+    messages: [
+      { role: 'system', content: questionClassificationSystemPrompt },
+      { role: 'user', content: prompt }
+    ]
+  })
+
+  const rawContent = response.choices[0]?.message.content
+
+  if (!rawContent) {
+    throw new Error('AI failed to return content for question classification')
+  }
+
+  const parsed = JSON.parse(rawContent) as { type: QuestionType }
+
+  if (parsed.type !== 'screen' && parsed.type !== 'general') {
+    throw new Error(`The AI returned an invalid question classification: ${parsed.type}`)
+  }
+
+  return parsed.type
+}
+
 async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
   const settings = getAISettings()
   const apiKey = settings.apiKey
   const model = settings.modelId
 
   if (!apiKey) {
-    throw new Error('NEBIUS_API_KEY is not configured')
+    throw new Error('API_KEY is not configured')
   }
 
   if (!model) {
-    throw new Error('NEBIUS_MODEL_ID is not configured')
+    throw new Error('MODEL_ID is not configured')
   }
 
   const client = new OpenAI({
@@ -467,6 +613,66 @@ async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
   return content
 }
 
+async function askGeneral(
+  prompt: string,
+  history: ScreenConversationMessage[] = []
+): Promise<ScreenAIResponse> {
+  const { client, model } = createAIClient(getDedicatedAISettings('GENERAL'), 'general')
+
+  const response = await client.chat.completions.create({
+    model,
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'general_response',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            text: {
+              type: 'string',
+              description: 'A concise spoken answer phonetically formatted for text-to-speech.'
+            }
+          },
+          required: ['text']
+        }
+      }
+    },
+    messages: [
+      {
+        role: 'system',
+        content: `${generalSystemPrompt}
+
+Prior messages in this conversation may or may not be related to the user's current request.
+Use prior messages to resolve references (such as "that", "it", or "the previous item") and context.
+Determine whether a follow-up question relies on prior screen context or previous non-screen discussions, and answer accordingly.
+Regardless of context, always return the exact same JSON object structure. Never return plain conversational text.`
+      },
+      ...history,
+      { role: 'user', content: prompt }
+    ]
+  })
+
+  const content = response.choices[0]?.message.content
+
+  if (!content || typeof content !== 'string') {
+    throw new Error('The AI returned an empty general response')
+  }
+
+  const parsed = JSON.parse(content) as { text: string }
+
+  return { text: parsed.text, boxes: [] }
+}
+
+async function askQuestion(
+  prompt: string,
+  history: ScreenConversationMessage[] = []
+): Promise<ScreenAIResponse> {
+  const questionType = await classifyQuestion(prompt)
+  return questionType === 'screen' ? askAboutScreen(prompt, history) : askGeneral(prompt, history)
+}
+
 async function capturePrimaryScreen(): Promise<string> {
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.size
@@ -503,7 +709,7 @@ async function askAboutScreen(
   const model = settings.modelId
 
   if (!apiKey || !model) {
-    throw new Error('NEBIUS_API_KEY and NEBIUS_MODEL_ID must be configured')
+    throw new Error('API_KEY and MODEL_ID must be configured')
   }
 
   const client = new OpenAI({
@@ -513,8 +719,6 @@ async function askAboutScreen(
 
   const response = await client.chat.completions.create({
     model,
-    temperature: 0,
-    top_p: 0.95,
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -718,6 +922,43 @@ app.whenReady().then(() => {
     return result
   })
 
+  ipcMain.handle('ai:ask-question', async (_event, request: unknown) => {
+    if (
+      typeof request !== 'object' ||
+      request === null ||
+      !('prompt' in request) ||
+      typeof request.prompt !== 'string' ||
+      request.prompt.trim().length === 0
+    ) {
+      throw new Error('Question prompt must be a non-empty string')
+    }
+
+    const history = 'history' in request ? request.history : undefined
+    if (
+      history !== undefined &&
+      (!Array.isArray(history) ||
+        history.some(
+          (message) =>
+            typeof message !== 'object' ||
+            message === null ||
+            !('role' in message) ||
+            (message.role !== 'user' && message.role !== 'assistant') ||
+            !('content' in message) ||
+            typeof message.content !== 'string'
+        ))
+    ) {
+      throw new Error('Question history must contain valid messages')
+    }
+
+    const result = await askQuestion(request.prompt, history)
+    void streamTTS(result.text, _event.sender).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'TTS playback failed'
+      console.error(message)
+      _event.sender.send('tts:error', { message })
+    })
+    return result
+  })
+
   ipcMain.handle('tts:speak', async (_event, text: unknown) => {
     if (typeof text !== 'string' || text.trim().length === 0) {
       throw new Error('TTS text must be a non-empty string')
@@ -748,24 +989,54 @@ app.whenReady().then(() => {
       !settings.apiKey.trim() ||
       !('modelId' in settings) ||
       typeof settings.modelId !== 'string' ||
-      !settings.modelId.trim()
+      !settings.modelId.trim() ||
+      !('classificationBaseUrl' in settings) ||
+      typeof settings.classificationBaseUrl !== 'string' ||
+      !settings.classificationBaseUrl.trim() ||
+      !('classificationApiKey' in settings) ||
+      typeof settings.classificationApiKey !== 'string' ||
+      !settings.classificationApiKey.trim() ||
+      !('classificationModelId' in settings) ||
+      typeof settings.classificationModelId !== 'string' ||
+      !settings.classificationModelId.trim() ||
+      !('generalBaseUrl' in settings) ||
+      typeof settings.generalBaseUrl !== 'string' ||
+      !settings.generalBaseUrl.trim() ||
+      !('generalApiKey' in settings) ||
+      typeof settings.generalApiKey !== 'string' ||
+      !settings.generalApiKey.trim() ||
+      !('generalModelId' in settings) ||
+      typeof settings.generalModelId !== 'string' ||
+      !settings.generalModelId.trim()
     ) {
       throw new Error('AI settings require a base URL, API key, and model ID')
     }
 
-    try {
-      const baseUrl = new URL(settings.baseUrl)
-      if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
-        throw new Error('unsupported protocol')
+    for (const baseUrlValue of [
+      settings.baseUrl,
+      settings.classificationBaseUrl,
+      settings.generalBaseUrl
+    ]) {
+      try {
+        const baseUrl = new URL(baseUrlValue)
+        if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
+          throw new Error('unsupported protocol')
+        }
+      } catch {
+        throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
       }
-    } catch {
-      throw new Error('AI base URL must be a valid HTTP or HTTPS URL')
     }
 
     const savedSettings = {
       baseUrl: settings.baseUrl.trim(),
       apiKey: settings.apiKey.trim(),
-      modelId: settings.modelId.trim()
+      modelId: settings.modelId.trim(),
+      classificationBaseUrl: settings.classificationBaseUrl.trim(),
+      classificationApiKey: settings.classificationApiKey.trim(),
+      classificationModelId: settings.classificationModelId.trim(),
+      generalBaseUrl: settings.generalBaseUrl.trim(),
+      generalApiKey: settings.generalApiKey.trim(),
+      generalModelId: settings.generalModelId.trim()
     }
     saveAISettings(savedSettings)
     return savedSettings
@@ -798,6 +1069,3 @@ app.on('will-quit', () => {
   stopTTSBackend()
   stopVoiceBackend()
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

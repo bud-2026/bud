@@ -18,6 +18,12 @@ interface AISettings {
   baseUrl: string
   apiKey: string
   modelId: string
+  classificationBaseUrl: string
+  classificationApiKey: string
+  classificationModelId: string
+  generalBaseUrl: string
+  generalApiKey: string
+  generalModelId: string
 }
 
 interface TTSStartEvent {
@@ -52,6 +58,10 @@ const api = {
   ai: {
     ask: (prompt: string, imageUrl?: string): Promise<string> =>
       ipcRenderer.invoke('ai:ask', { prompt, imageUrl }),
+    askQuestion: (
+      prompt: string,
+      history?: ScreenConversationMessage[]
+    ): Promise<ScreenAIResponse> => ipcRenderer.invoke('ai:ask-question', { prompt, history }),
     askScreen: (prompt: string, history?: ScreenConversationMessage[]): Promise<ScreenAIResponse> =>
       ipcRenderer.invoke('ai:ask-screen', { prompt, history })
   },

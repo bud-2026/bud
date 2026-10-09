@@ -13,6 +13,20 @@ body {
   height: 100%;
 }
 
+.debug-panel__title {
+  margin-bottom: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.question-panel__title {
+  margin-bottom: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 20px;
+  font-weight: 700;
+}
+
 .voice-orb {
   position: fixed;
   display: flex;
@@ -442,7 +456,8 @@ body {
 }
 
 @keyframes voice-orb-talk {
-  0%, 100% {
+  0%,
+  100% {
     height: 3px;
     width: 12px;
   }
@@ -478,7 +493,7 @@ body {
 
 .debug-panel {
   position: fixed;
-  top: 24px;
+  top: 0;
   left: 0;
   width: min(640px, calc(100vw - 24px));
   color: rgba(255, 255, 255, 0.92);
@@ -493,10 +508,9 @@ body {
 }
 
 .debug-panel__content {
-  margin-left: 12px;
+  height: 100vh;
+  overflow-y: scroll;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 14px;
   background: rgba(20, 20, 24, 0.88);
   backdrop-filter: blur(8px);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
@@ -525,7 +539,6 @@ body {
 }
 
 .debug-panel__clear:disabled {
-  cursor: not-allowed;
   opacity: 0.45;
 }
 
@@ -551,7 +564,9 @@ body {
 
 .question-panel__controls {
   display: flex;
+  margin-top: 8px;
   gap: 8px;
+  align-items: center;
 }
 
 .question-panel input {
@@ -564,6 +579,20 @@ body {
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
   font: inherit;
+}
+
+.ai-settings__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-settings__group strong {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .question-panel input:focus {
@@ -580,10 +609,11 @@ body {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  height: 42px;
 }
 
 .question-panel button:disabled {
-  cursor: wait;
+  cursor: default;
   opacity: 0.55;
 }
 
@@ -595,4 +625,39 @@ body {
 
 .question-panel__error {
   color: #ff9b9b;
+}
+
+/* 1. Target the scrollbar width and height globally */
+::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+/* 2. Hide all scrollbar buttons and their sub-components */
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:single-button,
+::-webkit-scrollbar-button:single-button:decrement,
+::-webkit-scrollbar-button:single-button:increment,
+::-webkit-scrollbar-button:decrement,
+::-webkit-scrollbar-button:increment,
+::-webkit-scrollbar-corner {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 3. Transparent track */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-track-piece {
+  background: transparent !important;
+}
+
+/* 4. Thumb styling */
+::-webkit-scrollbar-thumb {
+  background: #313131 !important;
+  border-radius: 9999px !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #1f1f1f !important;
 }
