@@ -404,6 +404,49 @@ CRITICAL INSTRUCTIONS:
 
 type QuestionType = 'screen' | 'general'
 
+export function sanitizeForTTS(text: string): string {
+  const preserveContractions = true
+  const normalizeWhitespace = true
+
+  if (!text || typeof text !== 'string') {
+    return ''
+  }
+
+  let cleaned = text
+
+  // 1. Remove Markdown syntax: headers (#), bold/italic (*, _), strikethrough (~), code blocks (`)
+  cleaned = cleaned.replace(/[*_~#`]/g, '')
+
+  // 2. Remove URLs and domain names
+  cleaned = cleaned.replace(/https?:\/\/\S+|www\.\S+/gi, '')
+
+  // 3. Remove standalone special symbols and bracket characters
+  cleaned = cleaned.replace(/[\[\](){}<>@\/\^|\\]/g, ' ')
+
+  // 4. Strip emojis and non-standard Unicode symbols
+  // Uses Unicode property escapes (\p{Extended_Pictographic})
+  cleaned = cleaned.replace(/\p{Extended_Pictographic}/gu, '')
+
+  // 5. Remove any character that is NOT a letter, number, white-space, or speech punctuation
+  // Preserved punctuation: . , ! ? - and conditionally '
+  const allowedCharsRegex = preserveContractions
+    ? /[^a-zA-Target-zA-Z0-9\s.,!?'\-]/g
+    : /[^a-zA-Target-zA-Z0-9\s.,!?\-]/g
+
+  cleaned = cleaned.replace(allowedCharsRegex, '')
+
+  // 6. Fix orphaned hyphens or repetitive punctuation
+  cleaned = cleaned.replace(/(?<!\w)-(?!\w)/g, ' ') // remove floating dashes
+  cleaned = cleaned.replace(/[-]{2,}/g, ' ') // collapse multiple dashes
+
+  // 7. Normalize whitespaces and trim leading/trailing spaces
+  if (normalizeWhitespace) {
+    cleaned = cleaned.replace(/\s+/g, ' ').trim()
+  }
+
+  return cleaned
+}
+
 function parseScreenResponse(content: string): ScreenAIResponse {
   const cleanedContent = content
     .replace(/^```(?:json)?\s*/i, '')
@@ -478,7 +521,7 @@ function parseScreenResponse(content: string): ScreenAIResponse {
   }
 
   return {
-    text: parsed.text,
+    text: sanitizeForTTS(parsed.text),
     boxes: validatedBoxes
   }
 }
@@ -662,7 +705,7 @@ Regardless of context, always return the exact same JSON object structure. Never
 
   const parsed = JSON.parse(content) as { text: string }
 
-  return { text: parsed.text, boxes: [] }
+  return { text: sanitizeForTTS(parsed.text), boxes: [] }
 }
 
 async function askQuestion(
