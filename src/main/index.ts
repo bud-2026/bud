@@ -511,9 +511,9 @@ async function askAboutScreen(
         role: 'system',
         content: `${systemPrompt}
 
-This is a follow-up in the same conversation when prior messages are present.
-Use the prior messages to resolve references such as "that", "it", or "the previous one",
-but always return the exact same JSON object structure. Never return plain conversational text.`
+Prior messages in this conversation may or may not be related to the user's current request.
+Use prior messages to resolve references (such as "that", "it", or "the previous item") only if the request depends on them; otherwise, process the new request independently.
+Regardless of context, always return the exact same JSON object structure. Never return plain conversational text.`
       },
       ...history,
       {
