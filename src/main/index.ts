@@ -323,8 +323,9 @@ CRITICAL INSTRUCTIONS:
    - Convert ALL numbers, dates, times, units, currencies, and symbols into full phonetic words for the text-to-speech engine in the "text" field.
    - Examples: write "seven fifteen p m" (not "7:15 PM"), "forty-two dollars" (not "$42"), "percent" (not "%"), "twenty-twenty-six" (not "2026").
 
-3. VISUAL GROUNDING ("boxes"):
-   - Highlight any specific region, UI element, text block, or object directly mentioned in your response.
+3. VISUAL GROUNDING ("boxes") - STRICT MANDATE:
+   - IF YOU MENTION OR DESCRIBE ANY VISUAL ELEMENT, TEXT BLOCK, BUTTON, ICON, OR UI REGION IN YOUR "text" FIELD, YOU MUST INCLUDE ITS BOUNDING BOX IN THE "boxes" ARRAY.
+   - NEVER leave the "boxes" array empty if your spoken text answers a screen-based or visual query.
    - For each box, specify the "label" and "copy" text FIRST, then output the "bbox" coordinates.
    - Set "copy" to null UNLESS the user explicitly asks to copy, read, extract, or transcribe text. When text extraction IS requested, include the exact, raw text in "copy" (with original symbols, numbers, and formatting).
    - Bounding box coordinates MUST follow native [xmin, ymin, xmax, ymax] format normalized on a 1000x1000 grid (integers 0 to 1000).
@@ -333,41 +334,41 @@ CRITICAL INSTRUCTIONS:
 
 JSON Schema:
 {
-  "text": "spoken response formatted phonetically for text-to-speech",
   "boxes": [
     {
       "label": "descriptive label matching the spoken text",
       "copy": "exact raw text extracted ONLY if requested by user, otherwise null",
       "bbox": [xmin, ymin, xmax, ymax]
     }
-  ]
+  ],
+  "text": "spoken response formatted phonetically for text-to-speech"
 }
 
 Example Output (General Localization - No copy requested):
 {
-  "text": "There is a submit button in the top right.",
   "boxes": [
     {
       "label": "submit button",
       "copy": null,
       "bbox": [800, 50, 950, 120]
     }
-  ]
+  ],
+  "text": "There is a submit button in the top right."
 }
 
 Example Output (Text Extraction Requested):
 {
-  "text": "The meeting starts at three thirty p m.",
   "boxes": [
     {
       "label": "meeting start time",
       "copy": "3:30 PM",
       "bbox": [145, 210, 520, 380]
     }
-  ]
+  ],
+  "text": "The meeting starts at three thirty p m."
 }
 
-Use an empty "boxes" array when no relevant visual objects are present. Respond strictly with raw JSON.
+Use an empty "boxes" array ONLY when the user's question is completely unrelated to the screen image (e.g., general knowledge queries). Respond strictly with raw JSON.
 `
 
 const questionClassificationSystemPrompt = `You are a strict text classification assistant.
@@ -602,11 +603,6 @@ Regardless of context, always return the exact same JSON object structure. Never
   })
 
   const rawContent = response.choices[0]?.message.content
-  console.log(
-    'Question classification raw content:',
-    rawContent,
-    ...history.filter((msg) => msg.role === 'user')
-  )
 
   if (!rawContent) {
     throw new Error('AI failed to return content for question classification')
@@ -799,6 +795,9 @@ async function askAboutScreen(
             },
             boxes: {
               type: 'array',
+              description:
+                'List of visual bounding boxes matching elements mentioned in text. Must not be empty if visual elements are identified.',
+              minItems: 1,
               items: {
                 type: 'object',
                 additionalProperties: false,
@@ -814,7 +813,8 @@ async function askAboutScreen(
                   },
                   bbox: {
                     type: 'array',
-                    description: '[xmin, ymin, xmax, ymax], normalized from 0 to 1000.',
+                    description:
+                      'Bounding box coordinates normalized to 0-1000 grid: [xmin, ymin, xmax, ymax].',
                     items: {
                       type: 'number',
                       minimum: 0,
