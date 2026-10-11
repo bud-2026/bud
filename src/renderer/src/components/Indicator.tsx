@@ -61,7 +61,7 @@ function Indicator({
             aria-label="Copy text"
             title={`Copy "${copy}"`}
           >
-            {copied ? 'Copied!' : 'Copy'}
+            {copied ? 'Copied' : 'Copy'}
           </button>
         )}
       </span>

@@ -2,18 +2,17 @@
   position: fixed;
   border: 2px solid #63e6be;
   border-radius: 8px;
-  box-shadow:
+  /* box-shadow:
     0 0 0 1px rgba(99, 230, 190, 0.25),
     0 0 18px rgba(99, 230, 190, 0.45),
-    inset 0 0 18px rgba(99, 230, 190, 0.08);
+    inset 0 0 18px rgba(99, 230, 190, 0.08); */
   pointer-events: none;
-  animation: indicator-glow 1.8s ease-in-out infinite;
+  /* animation: indicator-glow 1.8s ease-in-out infinite; */
 }
 
 .indicator__pulse {
   position: absolute;
   inset: -2px;
-  border: 2px solid rgba(99, 230, 190, 0.8);
   border-radius: inherit;
   pointer-events: none;
   animation: indicator-pulse 1.8s ease-out infinite;
@@ -21,10 +20,10 @@
 
 .indicator__label {
   position: absolute;
-  top: -28px;
-  left: -2px;
+  top: -32px;
+  left: 4px;
   padding: 5px 9px;
-  border-radius: 5px 5px 0 0;
+  border-radius: 5px;
   color: #081c16;
   background: #63e6be;
   font-size: 12px;
@@ -38,7 +37,7 @@
   pointer-events: auto;
   margin-left: 8px;
   padding: 2px 7px;
-  border: 1px solid rgba(8, 28, 22, 0.45);
+  border: none;
   border-radius: 4px;
   color: #63e6be;
   background: #081c16;
@@ -46,7 +45,7 @@
   font-size: 11px;
   line-height: 16px;
   font-weight: 700;
-  cursor: copy;
+  cursor: pointer;
   transition:
     color 120ms ease,
     background-color 120ms ease;
@@ -65,12 +64,11 @@
 @keyframes indicator-pulse {
   0% {
     opacity: 0.85;
-    transform: scale(1);
+    box-shadow: 0 0 0 0px rgba(99, 230, 190, 0.8);
   }
-
   100% {
     opacity: 0;
-    transform: scale(1.08);
+    box-shadow: 0 0 0 15px rgba(99, 230, 190, 0);
   }
 }
 
