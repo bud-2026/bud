@@ -78,6 +78,17 @@ declare global {
       getAI: () => Promise<AISettings>
       saveAI: (settings: AISettings) => Promise<AISettings>
     }
+    vl: {
+      onStatus: (
+        callback: (event: {
+          state: 'downloading' | 'loading' | 'ready' | 'error'
+          file?: string
+          received?: number
+          total?: number
+          message?: string
+        }) => void
+      ) => () => void
+    }
   }
 
   interface Window {

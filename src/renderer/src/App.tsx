@@ -27,6 +27,7 @@ function App(): React.JSX.Element {
   const [isDebugOpen, setIsDebugOpen] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState('Starting voice listener...')
+  const [vlStatus, setVlStatus] = useState('')
   const [voiceTranscript, setVoiceTranscript] = useState('')
   const [voiceOrbState, setVoiceOrbState] = useState<
     'hidden' | 'listening' | 'analyzing' | 'responding'
@@ -117,6 +118,32 @@ function App(): React.JSX.Element {
         )
       })
   }, [])
+  useEffect(
+    () =>
+      window.api.vl.onStatus((event) => {
+        if (event.state === 'downloading') {
+          const fileName = event.file ?? 'model'
+          setVlStatus(
+            event.total && event.received !== undefined
+              ? `Downloading ${fileName}: ${Math.floor(event.received / 1e6)} / ${Math.floor(
+                  event.total / 1e6
+                )} MB`
+              : `Downloading ${fileName}...`
+          )
+          return
+        }
+        if (event.state === 'loading') {
+          setVlStatus('Starting local Qwen3-VL model...')
+          return
+        }
+        if (event.state === 'ready') {
+          setVlStatus('Local Qwen3-VL model ready')
+          return
+        }
+        setVlStatus(`Local Qwen3-VL error: ${event.message ?? 'unknown error'}`)
+      }),
+    []
+  )
   useEffect(
     () =>
       window.api.voice.onEvent((event) => {
@@ -447,6 +474,7 @@ function App(): React.JSX.Element {
               </span>
             </label>
             <p className="question-panel__voice-status">{voiceStatus}</p>
+            {vlStatus && <p className="question-panel__voice-status">{vlStatus}</p>}
             <div className="question-panel__controls">
               <input
                 id="screen-question"

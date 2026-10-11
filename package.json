@@ -16,6 +16,7 @@
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "prepare:backends": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backends.ps1",
+    "prepare:vl": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-vl.ps1",
     "validate:backends": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-backends.ps1",
     "build:unpack": "npm run prepare:backends && npm run validate:backends && npm run build && electron-builder --dir",
     "build:win": "npm run prepare:backends && npm run validate:backends && npm run build && electron-builder --win",

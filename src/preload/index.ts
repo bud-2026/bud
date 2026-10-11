@@ -53,6 +53,14 @@ interface VoiceEvent {
   wake_word?: string
 }
 
+interface VlStatusEvent {
+  state: 'downloading' | 'loading' | 'ready' | 'error'
+  file?: string
+  received?: number
+  total?: number
+  message?: string
+}
+
 // Custom APIs for renderer
 const api = {
   ai: {
@@ -110,6 +118,14 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent, data: VoiceEvent): void => callback(data)
       ipcRenderer.on('voice:event', listener)
       return () => ipcRenderer.removeListener('voice:event', listener)
+    }
+  },
+  vl: {
+    onStatus: (callback: (event: VlStatusEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: VlStatusEvent): void =>
+        callback(data)
+      ipcRenderer.on('vl:status', listener)
+      return () => ipcRenderer.removeListener('vl:status', listener)
     }
   },
   settings: {

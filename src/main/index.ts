@@ -15,6 +15,13 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import {
+  VL_BASE_URL,
+  ensureLocalVlmReady,
+  isLocalVlmUrl,
+  startLocalVlm,
+  stopLocalVlm
+} from './localVlm'
 
 dotenv.config({ path: join(app.getAppPath(), '.env') })
 
@@ -29,21 +36,26 @@ function getAISettingsPath(): string {
   return join(app.getPath('userData'), 'ai-settings.json')
 }
 
+// Settings saved while screen answers were served by LM Studio's local server.
+const LEGACY_LM_STUDIO_BASE_URLS = new Set([
+  'http://127.0.0.1:1234/v1/',
+  'http://127.0.0.1:1234/v1',
+  'http://localhost:1234/v1/',
+  'http://localhost:1234/v1'
+])
+
+// Screen and classification questions run on the bundled Qwen3-VL server,
+// general knowledge questions stay on the Nebius API.
 function getAISettings(): AISettings {
   const defaults: AISettings = {
-    baseUrl: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
-    apiKey: process.env.API_KEY ?? '',
-    modelId: process.env.MODEL_ID ?? '',
+    baseUrl: process.env.AI_BASE_URL ?? VL_BASE_URL,
+    apiKey: process.env.API_KEY ?? 'local',
+    modelId: process.env.MODEL_ID ?? 'qwen/qwen3-vl-4b',
     classificationBaseUrl:
-      process.env.CLASSIFICATION_BASE_URL ??
-      process.env.AI_BASE_URL ??
-      'https://api.tokenfactory.nebius.com/v1/',
-    classificationApiKey: process.env.CLASSIFICATION_API_KEY ?? '',
-    classificationModelId: process.env.CLASSIFICATION_MODEL_ID ?? '',
-    generalBaseUrl:
-      process.env.GENERAL_BASE_URL ??
-      process.env.AI_BASE_URL ??
-      'https://api.tokenfactory.nebius.com/v1/',
+      process.env.CLASSIFICATION_BASE_URL ?? process.env.AI_BASE_URL ?? VL_BASE_URL,
+    classificationApiKey: process.env.CLASSIFICATION_API_KEY ?? 'local',
+    classificationModelId: process.env.CLASSIFICATION_MODEL_ID ?? 'qwen/qwen3-vl-4b',
+    generalBaseUrl: process.env.GENERAL_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     generalApiKey: process.env.GENERAL_API_KEY ?? '',
     generalModelId: process.env.GENERAL_MODEL_ID ?? ''
   }
@@ -80,6 +92,40 @@ function getAISettings(): AISettings {
 
 function saveAISettings(settings: AISettings): void {
   writeFileSync(getAISettingsPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
+}
+
+// Rewrites stored settings that still point at LM Studio (port 1234) so screen
+// answers come from the bundled Qwen3-VL server instead.
+function migrateLegacyAISettings(): void {
+  const settingsPath = getAISettingsPath()
+  if (!existsSync(settingsPath)) return
+
+  try {
+    const stored = JSON.parse(readFileSync(settingsPath, 'utf8')) as Partial<AISettings>
+    let changed = false
+
+    for (const key of ['baseUrl', 'classificationBaseUrl'] as const) {
+      const value = stored[key]
+      if (typeof value === 'string' && LEGACY_LM_STUDIO_BASE_URLS.has(value)) {
+        stored[key] = VL_BASE_URL
+        changed = true
+      }
+    }
+
+    if (changed) {
+      writeFileSync(settingsPath, `${JSON.stringify(stored, null, 2)}\n`, 'utf8')
+      console.log('Migrated stored AI settings from LM Studio to the bundled Qwen3-VL server')
+    }
+  } catch (error) {
+    console.error('Could not migrate stored AI settings:', error)
+  }
+}
+
+// Waits for the bundled model server only when a caller actually uses it.
+async function ensureLocalVlmFor(...baseUrls: string[]): Promise<void> {
+  if (baseUrls.some((baseUrl) => isLocalVlmUrl(baseUrl))) {
+    await ensureLocalVlmReady()
+  }
 }
 
 function startTTSBackend(): void {
@@ -561,10 +607,9 @@ async function classifyQuestion(
   prompt: string,
   history: ScreenConversationMessage[]
 ): Promise<QuestionType> {
-  const { client, model } = createAIClient(
-    getDedicatedAISettings('CLASSIFICATION'),
-    'classification'
-  )
+  const settings = getDedicatedAISettings('CLASSIFICATION')
+  await ensureLocalVlmFor(settings.baseUrl)
+  const { client, model } = createAIClient(settings, 'classification')
 
   const response = await client.chat.completions.create({
     model,
@@ -619,6 +664,7 @@ Regardless of context, always return the exact same JSON object structure. Never
 
 async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
   const settings = getAISettings()
+  await ensureLocalVlmFor(settings.baseUrl)
   const apiKey = settings.apiKey
   const model = settings.modelId
 
@@ -636,7 +682,8 @@ async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
   })
   const response = await client.chat.completions.create({
     model,
-    reasoning_effort: 'none',
+    // reasoning_effort only applies to hosted reasoning models.
+    ...(isLocalVlmUrl(settings.baseUrl) ? {} : { reasoning_effort: 'none' as const }),
     messages: [
       {
         role: 'system',
@@ -676,11 +723,14 @@ async function askGeneral(
   prompt: string,
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
-  const { client, model } = createAIClient(getDedicatedAISettings('GENERAL'), 'general')
+  const settings = getDedicatedAISettings('GENERAL')
+  await ensureLocalVlmFor(settings.baseUrl)
+  const { client, model } = createAIClient(settings, 'general')
 
   const response = await client.chat.completions.create({
     model,
-    reasoning_effort: 'none',
+    // reasoning_effort only applies to hosted reasoning models.
+    ...(isLocalVlmUrl(settings.baseUrl) ? {} : { reasoning_effort: 'none' as const }),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -763,8 +813,9 @@ async function askAboutScreen(
   prompt: string,
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
-  const imageUrl = await capturePrimaryScreen()
   const settings = getAISettings()
+  await ensureLocalVlmFor(settings.baseUrl)
+  const imageUrl = await capturePrimaryScreen()
   const apiKey = settings.apiKey
   const model = settings.modelId
 
@@ -779,7 +830,8 @@ async function askAboutScreen(
 
   const response = await client.chat.completions.create({
     model,
-    reasoning_effort: 'none',
+    // reasoning_effort only applies to hosted reasoning models.
+    ...(isLocalVlmUrl(settings.baseUrl) ? {} : { reasoning_effort: 'none' as const }),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -903,7 +955,9 @@ async function streamTTS(text: string, webContents: Electron.WebContents): Promi
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  migrateLegacyAISettings()
   startTTSBackend()
+  startLocalVlm()
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -1133,4 +1187,5 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopTTSBackend()
   stopVoiceBackend()
+  stopLocalVlm()
 })
