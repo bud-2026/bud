@@ -9,6 +9,14 @@ interface ScreenAIResponse {
   }>
 }
 
+/** Normalized screen region on the 1000x1000 display grid. */
+interface Region {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 interface ScreenConversationMessage {
   role: 'user' | 'assistant'
   content: string
@@ -45,6 +53,7 @@ interface VoiceEvent {
   end_session?: boolean
   message?: string
   wake_word?: string
+  auto?: boolean
 }
 
 type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
@@ -77,14 +86,22 @@ const api = {
       ipcRenderer.invoke('ai:ask', { prompt, imageUrl }),
     askQuestion: (
       prompt: string,
-      history?: ScreenConversationMessage[]
-    ): Promise<ScreenAIResponse> => ipcRenderer.invoke('ai:ask-question', { prompt, history }),
-    askScreen: (prompt: string, history?: ScreenConversationMessage[]): Promise<ScreenAIResponse> =>
-      ipcRenderer.invoke('ai:ask-screen', { prompt, history })
+      history?: ScreenConversationMessage[],
+      region?: Region
+    ): Promise<ScreenAIResponse> =>
+      ipcRenderer.invoke('ai:ask-question', { prompt, history, region }),
+    askScreen: (
+      prompt: string,
+      history?: ScreenConversationMessage[],
+      region?: Region
+    ): Promise<ScreenAIResponse> => ipcRenderer.invoke('ai:ask-screen', { prompt, history, region })
   },
   overlay: {
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send('overlay:set-interactive', interactive)
+    },
+    setSelectMode: (active: boolean): void => {
+      ipcRenderer.send('overlay:set-select-mode', active)
     },
     onDebugVisibilityChanged: (callback: (visible: boolean) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => {
@@ -123,6 +140,8 @@ const api = {
   },
   voice: {
     stopSession: (): Promise<void> => ipcRenderer.invoke('voice:stop-session'),
+    setListenMode: (continuous: boolean): Promise<void> =>
+      ipcRenderer.invoke('voice:set-listen-mode', continuous),
     onEvent: (callback: (event: VoiceEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: VoiceEvent): void => callback(data)
       ipcRenderer.on('voice:event', listener)

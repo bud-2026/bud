@@ -18,6 +18,14 @@ declare global {
     content: string
   }
 
+  /** Normalized screen region on the 1000x1000 display grid. */
+  interface Region {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+
   interface AISettings {
     generalBaseUrl: string
     generalApiKey: string
@@ -52,15 +60,18 @@ declare global {
       ask: (prompt: string, imageUrl?: string) => Promise<string>
       askQuestion: (
         prompt: string,
-        history?: ScreenConversationMessage[]
+        history?: ScreenConversationMessage[],
+        region?: Region
       ) => Promise<ScreenAIResponse>
       askScreen: (
         prompt: string,
-        history?: ScreenConversationMessage[]
+        history?: ScreenConversationMessage[],
+        region?: Region
       ) => Promise<ScreenAIResponse>
     }
     overlay: {
       setInteractive: (interactive: boolean) => void
+      setSelectMode: (active: boolean) => void
       onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
     }
     tts: {
@@ -72,6 +83,7 @@ declare global {
     }
     voice: {
       stopSession: () => Promise<void>
+      setListenMode: (continuous: boolean) => Promise<void>
       onEvent: (
         callback: (event: {
           event:
@@ -88,6 +100,7 @@ declare global {
           end_session?: boolean
           message?: string
           wake_word?: string
+          auto?: boolean
         }) => void
       ) => () => void
     }

@@ -11,15 +11,27 @@ def emit(event: str, **data: Any) -> None:
     print(json.dumps({"event": event, **data}), flush=True)
 
 
-def listen_for_commands(stop_transcription: threading.Event, stop_session: threading.Event) -> None:
+def listen_for_commands(
+    stop_transcription: threading.Event,
+    stop_session: threading.Event,
+    auto_listen: threading.Event,
+) -> None:
     for line in sys.stdin:
         try:
             command = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(command, dict) and command.get("command") == "stop_session":
+        if not isinstance(command, dict):
+            continue
+        name = command.get("command")
+        if name == "stop_session":
             stop_session.set()
             stop_transcription.set()
+        elif name == "set_mode":
+            if command.get("mode") == "continuous":
+                auto_listen.set()
+            else:
+                auto_listen.clear()
 
 
 def value_from_line(line: Any) -> str:
@@ -101,9 +113,10 @@ def run() -> None:
     last_speech_at = 0.0
     stop_transcription = threading.Event()
     stop_session = threading.Event()
+    auto_listen = threading.Event()
     threading.Thread(
         target=listen_for_commands,
-        args=(stop_transcription, stop_session),
+        args=(stop_transcription, stop_session, auto_listen),
         daemon=True,
     ).start()
 
@@ -120,25 +133,33 @@ def run() -> None:
         emit("ready", wake_word=wake_word_name)
 
         while True:
-            recorder.start()
-            emit("listening", wake_word=wake_word_name)
-            wake_confirmations = 0
-            try:
-                while True:
-                    audio = np.asarray(recorder.read(), dtype=np.int16)
-                    scores = wake_word.predict(audio)
-                    if max(scores.values(), default=0.0) >= wake_threshold:
-                        wake_confirmations += 1
-                    else:
-                        wake_confirmations = 0
-                    if wake_confirmations >= wake_confirmation_frames:
-                        break
-            finally:
-                recorder.stop()
+            started_by_wake = False
+            if auto_listen.is_set():
+                emit("listening", auto=True)
+            else:
+                recorder.start()
+                emit("listening", wake_word=wake_word_name)
+                wake_confirmations = 0
+                try:
+                    while True:
+                        audio = np.asarray(recorder.read(), dtype=np.int16)
+                        if auto_listen.is_set():
+                            break
+                        scores = wake_word.predict(audio)
+                        if max(scores.values(), default=0.0) >= wake_threshold:
+                            wake_confirmations += 1
+                        else:
+                            wake_confirmations = 0
+                        if wake_confirmations >= wake_confirmation_frames:
+                            started_by_wake = True
+                            break
+                finally:
+                    recorder.stop()
 
-            time.sleep(0.15)
+                if started_by_wake:
+                    time.sleep(0.15)
+                    emit("wake_detected")
 
-            emit("wake_detected")
             conversation_active = True
             while conversation_active:
                 latest_text = ""
@@ -154,9 +175,10 @@ def run() -> None:
                         return
 
                     if first_turn:
-                        value = remove_wake_word_prefix(value, wake_word_name)
-                        if not value:
-                            return
+                        if started_by_wake:
+                            value = remove_wake_word_prefix(value, wake_word_name)
+                            if not value:
+                                return
                         first_turn = False
 
                     if final:
@@ -208,6 +230,11 @@ def run() -> None:
                 should_end_conversation = is_stop_phrase(latest_text, stop_phrases)
                 emit("final", text=latest_text, end_session=should_end_conversation)
                 if should_end_conversation:
+                    # Leaving continuous mode on a stop phrase so the outer loop
+                    # returns to waiting for the wake word instead of immediately
+                    # starting another auto-listening session.
+                    if auto_listen.is_set():
+                        auto_listen.clear()
                     emit("conversation_ended")
                     conversation_active = False
     except KeyboardInterrupt:

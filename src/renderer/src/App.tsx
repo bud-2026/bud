@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import Indicator from './components/Indicator'
+import RegionSelector from './components/RegionSelector'
 import VoiceOrb from './components/VoiceOrb'
 import { askQuestion } from './lib/ai'
 
@@ -94,7 +95,12 @@ function App(): React.JSX.Element {
     'hidden' | 'listening' | 'analyzing' | 'responding'
   >('hidden')
   const [isOrbExiting, setIsOrbExiting] = useState(false)
+  const [region, setRegion] = useState<Region | null>(null)
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [isAutoListen, setIsAutoListen] = useState(false)
   const voiceOrbStateRef = useRef(voiceOrbState)
+  const regionRef = useRef<Region | null>(null)
+  const autoListenRef = useRef(false)
   const isLoadingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const voiceSessionActiveRef = useRef(false)
@@ -125,6 +131,7 @@ function App(): React.JSX.Element {
   const resetVoiceInactivityTimer = useCallback((): void => {
     if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
     voiceInactivityTimerRef.current = setTimeout(() => {
+      if (autoListenRef.current) return
       voiceSessionActiveRef.current = false
       voiceSessionEndedRef.current = true
       void window.api.voice.stopSession().catch((error: unknown) => {
@@ -147,6 +154,85 @@ function App(): React.JSX.Element {
       )
     }, 2000)
   }
+
+  const startAutoListen = useCallback((): void => {
+    setIsAutoListen(true)
+    autoListenRef.current = true
+    voiceSessionEndedRef.current = false
+    voiceSessionActiveRef.current = true
+    void window.api.voice.setListenMode(true).catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : 'Could not enable continuous listening')
+    })
+  }, [])
+
+  const stopAutoListen = useCallback((): void => {
+    setIsAutoListen(false)
+    autoListenRef.current = false
+    void window.api.voice.setListenMode(false).catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : 'Could not disable continuous listening')
+    })
+    void window.api.voice.stopSession().catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : 'Could not stop voice listening')
+    })
+  }, [])
+
+  const startRegionSelection = useCallback((): void => {
+    stopAutoListen()
+    setIsSelecting(true)
+    window.api.overlay.setSelectMode(true)
+  }, [stopAutoListen])
+
+  const finishRegionSelection = useCallback(
+    (nextRegion: Region): void => {
+      setRegion(nextRegion)
+      regionRef.current = nextRegion
+      setIsSelecting(false)
+      window.api.overlay.setSelectMode(false)
+      startAutoListen()
+      setVoiceStatus('Auto-listening in selected area · Esc to stop')
+    },
+    [startAutoListen]
+  )
+
+  const cancelRegionSelection = useCallback((): void => {
+    setIsSelecting(false)
+    window.api.overlay.setSelectMode(false)
+    // Esc during a re-selection leaves an existing region in place, so resume
+    // auto-listening instead of stranding the user in a non-listening state.
+    if (regionRef.current) startAutoListen()
+  }, [startAutoListen])
+
+  const handleRegionControlClick = useCallback((): void => {
+    if (regionRef.current && autoListenRef.current) {
+      stopAutoListen()
+      return
+    }
+    if (regionRef.current) {
+      startAutoListen()
+      return
+    }
+    startRegionSelection()
+  }, [startAutoListen, stopAutoListen, startRegionSelection])
+
+  const clearRegion = useCallback((): void => {
+    setRegion(null)
+    regionRef.current = null
+    stopAutoListen()
+    voiceSessionActiveRef.current = false
+    voiceSessionEndedRef.current = true
+    hideOrbWithAnimation()
+  }, [stopAutoListen, hideOrbWithAnimation])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      if (isSelecting) return
+      clearRegion()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isSelecting, clearRegion])
+
   const audioContextRef = useRef<AudioContext | null>(null)
   const nextAudioTimeRef = useRef<number>(0)
 
@@ -223,6 +309,11 @@ function App(): React.JSX.Element {
         if (event.event === 'final' && event.text) {
           const userText = event.text
           if (event.end_session) {
+            if (autoListenRef.current) {
+              clearRegion()
+              setVoiceStatus('Stopped listening · selected area cleared')
+              return
+            }
             voiceSessionActiveRef.current = false
             voiceSessionEndedRef.current = true
             clearVoiceInactivityTimer()
@@ -239,7 +330,11 @@ function App(): React.JSX.Element {
           isLoadingRef.current = true
           pendingBoxClearRef.current = true
           setError(null)
-          void askQuestion(userText, voiceConversationHistoryRef.current)
+          void askQuestion(
+            userText,
+            voiceConversationHistoryRef.current,
+            regionRef.current ?? undefined
+          )
             .then((screenResponse) => {
               voiceConversationHistoryRef.current = [
                 ...voiceConversationHistoryRef.current,
@@ -263,7 +358,9 @@ function App(): React.JSX.Element {
 
         const statuses: Record<string, string> = {
           ready: `Voice listener ready · say “${event.wake_word ?? 'hey bud'}”`,
-          listening: `Listening for “${event.wake_word ?? 'hey bud'}”`,
+          listening: event.auto
+            ? 'Auto-listening in selected area…'
+            : `Listening for “${event.wake_word ?? 'hey bud'}”`,
           wake_detected: 'Wake word detected',
           transcribing: 'Listening for your question...'
         }
@@ -279,7 +376,13 @@ function App(): React.JSX.Element {
         }
         setVoiceStatus(statuses[event.event] ?? event.event)
       }),
-    [clearVoiceInactivityTimer, hideOrbWithAnimation, resetVoiceInactivityTimer, setOrbState]
+    [
+      clearRegion,
+      clearVoiceInactivityTimer,
+      hideOrbWithAnimation,
+      resetVoiceInactivityTimer,
+      setOrbState
+    ]
   )
   useEffect(() => {
     const unsubscribeStart = window.api.tts.onStart(({ sampleRate }) => {
@@ -365,7 +468,11 @@ function App(): React.JSX.Element {
     if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
     pendingBoxClearRef.current = true
     try {
-      const screenResponse = await askQuestion(prompt, screenConversationHistoryRef.current)
+      const screenResponse = await askQuestion(
+        prompt,
+        screenConversationHistoryRef.current,
+        regionRef.current ?? undefined
+      )
       screenConversationHistoryRef.current = [
         ...screenConversationHistoryRef.current,
         { role: 'user' as const, content: prompt },
@@ -414,6 +521,18 @@ function App(): React.JSX.Element {
   return (
     <main className="overlay" aria-label="Screen overlay">
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
+      {region && !isSelecting && (
+        <div
+          className="region-outline"
+          style={{
+            left: `${region.x / 10}%`,
+            top: `${region.y / 10}%`,
+            width: `${region.width / 10}%`,
+            height: `${region.height / 10}%`
+          }}
+          aria-hidden="true"
+        />
+      )}
       <section
         className={`debug-panel${isDebugOpen ? ' debug-panel--open' : ''}`}
         aria-hidden={!isDebugOpen}
@@ -450,7 +569,6 @@ function App(): React.JSX.Element {
               <p className="question-panel__voice-status">Checking local model…</p>
             )}
           </div>
-
 
           <form className="question-panel" onSubmit={handleSettingsSubmit}>
             <h2 className="question-panel__title">AI Settings</h2>
@@ -492,6 +610,24 @@ function App(): React.JSX.Element {
           <form className="question-panel" onSubmit={handleSubmit}>
             <h2 className="question-panel__title">Debug</h2>
             <p className="question-panel__voice-status">{voiceStatus}</p>
+            <div className="region-control">
+              <button type="button" onClick={handleRegionControlClick} disabled={isSelecting}>
+                {isSelecting
+                  ? 'Selecting…'
+                  : region
+                    ? isAutoListen
+                      ? 'Stop listening'
+                      : 'Start listening'
+                    : 'Select area to analyze'}
+              </button>
+              <span className="region-control__status">
+                {region
+                  ? isAutoListen
+                    ? `Area selected (${region.width}×${region.height} of 1000) · auto-listening`
+                    : `Area selected (${region.width}×${region.height} of 1000)`
+                  : 'Analyzing the full screen'}
+              </span>
+            </div>
             <div className="question-panel__controls">
               <input
                 id="screen-question"
@@ -535,6 +671,9 @@ function App(): React.JSX.Element {
           copy={box.copy}
         />
       ))}
+      {isSelecting && (
+        <RegionSelector onComplete={finishRegionSelection} onCancel={cancelRegionSelection} />
+      )}
     </main>
   )
 }

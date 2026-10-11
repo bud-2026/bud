@@ -1,0 +1,56 @@
+.region-selector {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  cursor: crosshair;
+  background: rgba(8, 12, 16, 0.35);
+  user-select: none;
+}
+
+.region-selector__hint {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(20, 20, 24, 0.85);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.region-selector__rect {
+  position: absolute;
+  border: 2px solid #63e6be;
+  border-radius: 4px;
+  background: rgba(99, 230, 190, 0.12);
+  box-shadow: 0 0 0 9999px rgba(8, 12, 16, 0.35);
+  pointer-events: none;
+}
+
+.region-outline {
+  position: fixed;
+  border: 2px solid rgba(99, 230, 190, 0.85);
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 1px rgba(8, 28, 22, 0.6),
+    0 0 18px rgba(99, 230, 190, 0.35);
+  pointer-events: none;
+}
+
+.region-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.region-control__status {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 500;
+}

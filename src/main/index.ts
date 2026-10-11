@@ -214,6 +214,14 @@ function stopVoiceSession(): void {
   }
 }
 
+function setVoiceListenMode(continuous: boolean): void {
+  if (voiceProcess?.stdin?.writable) {
+    voiceProcess.stdin.write(
+      `${JSON.stringify({ command: 'set_mode', mode: continuous ? 'continuous' : 'wake' })}\n`
+    )
+  }
+}
+
 function createWindow(): void {
   // Create a transparent overlay that covers the current display.
   const mainWindow = new BrowserWindow({
@@ -243,9 +251,10 @@ function createWindow(): void {
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
   let debugVisible = true
+  let selectMode = false
   const setDebugVisible = (visible: boolean): void => {
     debugVisible = visible
-    mainWindow.setIgnoreMouseEvents(!visible, { forward: true })
+    mainWindow.setIgnoreMouseEvents(!visible && !selectMode, { forward: true })
 
     if (visible) {
       mainWindow.show()
@@ -261,11 +270,28 @@ function createWindow(): void {
     if (
       event.sender !== mainWindow.webContents ||
       debugVisible ||
+      selectMode ||
       typeof interactive !== 'boolean'
     ) {
       return
     }
     mainWindow.setIgnoreMouseEvents(!interactive, { forward: true })
+  })
+
+  // Region selection needs the overlay to capture mouse input even while the
+  // debug panel is hidden and the window would otherwise be click-through.
+  ipcMain.on('overlay:set-select-mode', (event, active: unknown) => {
+    if (event.sender !== mainWindow.webContents || typeof active !== 'boolean') {
+      return
+    }
+    selectMode = active
+    if (active) {
+      mainWindow.setIgnoreMouseEvents(false)
+      mainWindow.show()
+      mainWindow.focus()
+    } else if (!debugVisible) {
+      mainWindow.setIgnoreMouseEvents(true, { forward: true })
+    }
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -322,6 +348,14 @@ interface BoundingBox {
   bbox: [number, number, number, number]
   label?: string
   copy?: string
+}
+
+/** Normalized screen region on the 1000x1000 display grid. */
+interface Region {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 interface ScreenAIResponse {
@@ -554,6 +588,47 @@ function parseScreenResponse(content: string): ScreenAIResponse {
   }
 }
 
+// Validates an optional screen region from the renderer. Regions use the same
+// 0-1000 normalized grid as bounding boxes, relative to the full display.
+function parseRegion(value: unknown): Region | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+
+  if (typeof value !== 'object') {
+    throw new Error('Screen region must be an object')
+  }
+
+  const record = value as Record<string, unknown>
+  const coordinates: Array<keyof Region> = ['x', 'y', 'width', 'height']
+
+  for (const key of coordinates) {
+    if (typeof record[key] !== 'number' || !Number.isFinite(record[key])) {
+      throw new Error(`Screen region ${key} must be a finite number`)
+    }
+  }
+
+  const region: Region = {
+    x: record.x as number,
+    y: record.y as number,
+    width: record.width as number,
+    height: record.height as number
+  }
+
+  if (
+    region.x < 0 ||
+    region.y < 0 ||
+    region.width <= 0 ||
+    region.height <= 0 ||
+    region.x + region.width > 1000 ||
+    region.y + region.height > 1000
+  ) {
+    throw new Error('Screen region must be within the 0-1000 display grid')
+  }
+
+  return region
+}
+
 function getGeneralAISettings(): AIClientSettings {
   const settings = getAISettings()
   return {
@@ -737,13 +812,16 @@ Regardless of context, always return the exact same JSON object structure. Never
 
 async function askQuestion(
   prompt: string,
-  history: ScreenConversationMessage[] = []
+  history: ScreenConversationMessage[] = [],
+  region?: Region
 ): Promise<ScreenAIResponse> {
   const questionType = await classifyQuestion(prompt, history)
-  return questionType === 'screen' ? askAboutScreen(prompt, history) : askGeneral(prompt, history)
+  return questionType === 'screen'
+    ? askAboutScreen(prompt, history, region)
+    : askGeneral(prompt, history)
 }
 
-async function capturePrimaryScreen(): Promise<string> {
+async function capturePrimaryScreen(region?: Region): Promise<string> {
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.size
   const maxDimension =
@@ -766,15 +844,51 @@ async function capturePrimaryScreen(): Promise<string> {
     throw new Error('Could not capture the primary screen')
   }
 
-  return source.thumbnail.toDataURL()
+  if (!region) {
+    return source.thumbnail.toDataURL()
+  }
+
+  const { width: imageWidth, height: imageHeight } = source.thumbnail.getSize()
+  const rawX = Math.round((region.x / 1000) * imageWidth)
+  const rawY = Math.round((region.y / 1000) * imageHeight)
+  const cropX = Math.max(0, Math.min(rawX, imageWidth - 1))
+  const cropY = Math.max(0, Math.min(rawY, imageHeight - 1))
+  const cropWidth = Math.max(
+    1,
+    Math.min(Math.round((region.width / 1000) * imageWidth), imageWidth - cropX)
+  )
+  const cropHeight = Math.max(
+    1,
+    Math.min(Math.round((region.height / 1000) * imageHeight), imageHeight - cropY)
+  )
+
+  return source.thumbnail
+    .crop({ x: cropX, y: cropY, width: cropWidth, height: cropHeight })
+    .toDataURL()
+}
+
+// The vision model returns boxes relative to the cropped image it was given.
+// Translate them back onto the full-screen 0-1000 grid so the overlay lands
+// the indicators in the right place.
+function remapBoxesToScreen(boxes: BoundingBox[], region: Region): BoundingBox[] {
+  const mapX = (value: number): number =>
+    Math.min(1000, Math.max(0, Math.round(region.x + (value / 1000) * region.width)))
+  const mapY = (value: number): number =>
+    Math.min(1000, Math.max(0, Math.round(region.y + (value / 1000) * region.height)))
+
+  return boxes.map((box) => {
+    const [xmin, ymin, xmax, ymax] = box.bbox
+    return { ...box, bbox: [mapX(xmin), mapY(ymin), mapX(xmax), mapY(ymax)] }
+  })
 }
 
 async function askAboutScreen(
   prompt: string,
-  history: ScreenConversationMessage[] = []
+  history: ScreenConversationMessage[] = [],
+  region?: Region
 ): Promise<ScreenAIResponse> {
   await ensureLocalVlmReady()
-  const imageUrl = await capturePrimaryScreen()
+  const imageUrl = await capturePrimaryScreen(region)
   const { client, model } = createLocalVlmClient()
 
   const response = await client.chat.completions.create({
@@ -857,7 +971,8 @@ Regardless of context, always return the exact same JSON object structure. Never
     throw new Error('The AI returned an empty screen analysis response')
   }
 
-  return parseScreenResponse(content)
+  const result = parseScreenResponse(content)
+  return region ? { ...result, boxes: remapBoxesToScreen(result.boxes, region) } : result
 }
 
 async function streamTTS(text: string, webContents: Electron.WebContents): Promise<void> {
@@ -980,7 +1095,11 @@ app.whenReady().then(() => {
       throw new Error('Screen analysis history must contain valid messages')
     }
 
-    const result = await askAboutScreen(request.prompt, history)
+    const result = await askAboutScreen(
+      request.prompt,
+      history,
+      parseRegion('region' in request ? request.region : undefined)
+    )
     void streamTTS(result.text, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
@@ -1017,7 +1136,11 @@ app.whenReady().then(() => {
       throw new Error('Question history must contain valid messages')
     }
 
-    const result = await askQuestion(request.prompt, history)
+    const result = await askQuestion(
+      request.prompt,
+      history,
+      parseRegion('region' in request ? request.region : undefined)
+    )
     void streamTTS(result.text, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
@@ -1040,6 +1163,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle('voice:stop-session', () => {
     stopVoiceSession()
+  })
+
+  ipcMain.handle('voice:set-listen-mode', (_event, continuous: unknown) => {
+    if (typeof continuous !== 'boolean') {
+      throw new Error('Voice listen mode must be a boolean')
+    }
+    setVoiceListenMode(continuous)
   })
 
   ipcMain.handle('settings:get-ai', () => getAISettings())
