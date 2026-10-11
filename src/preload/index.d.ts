@@ -72,6 +72,7 @@ declare global {
     overlay: {
       setInteractive: (interactive: boolean) => void
       setSelectMode: (active: boolean) => void
+      setDebugVisible: (visible: boolean) => void
       onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
     }
     tts: {

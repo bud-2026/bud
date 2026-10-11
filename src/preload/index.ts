@@ -103,6 +103,9 @@ const api = {
     setSelectMode: (active: boolean): void => {
       ipcRenderer.send('overlay:set-select-mode', active)
     },
+    setDebugVisible: (visible: boolean): void => {
+      ipcRenderer.send('overlay:set-debug-visible', visible)
+    },
     onDebugVisibilityChanged: (callback: (visible: boolean) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => {
         callback(visible)

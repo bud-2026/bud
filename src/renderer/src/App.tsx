@@ -1,10 +1,50 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import Indicator from './components/Indicator'
 import RegionSelector from './components/RegionSelector'
+import Toolbar, { type ToolbarEdge } from './components/Toolbar'
 import VoiceOrb from './components/VoiceOrb'
 import { askQuestion } from './lib/ai'
 
 const VOICE_HISTORY_MESSAGE_LIMIT = 20
+const TOOLBAR_EDGE_INSET = 8
+const TOOLBAR_STATE_STORAGE_KEY = 'bud-toolbar-state'
+const TOOLBAR_LEGACY_X_STORAGE_KEY = 'bud-toolbar-x'
+
+interface ToolbarState {
+  edge: ToolbarEdge
+  position: number
+}
+
+function isToolbarEdge(value: unknown): value is ToolbarEdge {
+  return value === 'top' || value === 'bottom' || value === 'left' || value === 'right'
+}
+
+function clampToolbarPosition(position: number): number {
+  return Math.min(96, Math.max(4, position))
+}
+
+function readStoredToolbarState(): ToolbarState {
+  try {
+    const raw = window.localStorage.getItem(TOOLBAR_STATE_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as { edge?: unknown; position?: unknown }
+      const position = Number(parsed.position)
+      if (isToolbarEdge(parsed.edge) && Number.isFinite(position)) {
+        return { edge: parsed.edge, position: clampToolbarPosition(position) }
+      }
+    }
+    const legacy = window.localStorage.getItem(TOOLBAR_LEGACY_X_STORAGE_KEY)
+    if (legacy !== null) {
+      const legacyPosition = Number(legacy)
+      if (Number.isFinite(legacyPosition)) {
+        return { edge: 'top', position: clampToolbarPosition(legacyPosition) }
+      }
+    }
+  } catch {
+    // Ignore malformed stored values and fall back to defaults.
+  }
+  return { edge: 'top', position: 50 }
+}
 
 function formatMegabytes(bytes: number): string {
   return `${Math.floor(bytes / 1e6)} MB`
@@ -98,9 +138,16 @@ function App(): React.JSX.Element {
   const [region, setRegion] = useState<Region | null>(null)
   const [isSelecting, setIsSelecting] = useState(false)
   const [isAutoListen, setIsAutoListen] = useState(false)
+  const [toolbar, setToolbar] = useState<ToolbarState>(readStoredToolbarState)
+  const [isToolbarVisible, setIsToolbarVisible] = useState(false)
   const voiceOrbStateRef = useRef(voiceOrbState)
   const regionRef = useRef<Region | null>(null)
   const autoListenRef = useRef(false)
+  const toolbarRef = useRef<ToolbarState>(toolbar)
+  const toolbarElementRef = useRef<HTMLElement | null>(null)
+  const isToolbarVisibleRef = useRef(false)
+  const isToolbarDraggingRef = useRef(false)
+  const pointerRef = useRef({ x: 0, y: -1 })
   const isLoadingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const voiceSessionActiveRef = useRef(false)
@@ -223,6 +270,20 @@ function App(): React.JSX.Element {
     hideOrbWithAnimation()
   }, [stopAutoListen, hideOrbWithAnimation])
 
+  const toggleDebugPanel = useCallback((): void => {
+    window.api.overlay.setDebugVisible(!isDebugOpen)
+  }, [isDebugOpen])
+
+  const handleToolbarMove = useCallback((edge: ToolbarEdge, position: number): void => {
+    const next = { edge, position }
+    toolbarRef.current = next
+    setToolbar(next)
+  }, [])
+
+  const handleToolbarDraggingChange = useCallback((dragging: boolean): void => {
+    isToolbarDraggingRef.current = dragging
+  }, [])
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
@@ -238,23 +299,86 @@ function App(): React.JSX.Element {
 
   useEffect(() => window.api.overlay.onDebugVisibilityChanged(setIsDebugOpen), [])
   useEffect(() => {
+    window.localStorage.setItem(TOOLBAR_STATE_STORAGE_KEY, JSON.stringify(toolbar))
+  }, [toolbar])
+  useEffect(() => {
+    toolbarElementRef.current = document.querySelector('.toolbar')
+  }, [])
+
+  const isPointerNearToolbar = useCallback((x: number, y: number): boolean => {
+    const element = toolbarElementRef.current
+    if (!element) return false
+    const width = element.offsetWidth
+    const height = element.offsetHeight
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const { edge, position } = toolbarRef.current
+
+    if (edge === 'top' || edge === 'bottom') {
+      const center = (position / 100) * viewportWidth
+      if (x < center - width / 2 || x > center + width / 2) return false
+      return edge === 'top'
+        ? y <= TOOLBAR_EDGE_INSET + height
+        : y >= viewportHeight - TOOLBAR_EDGE_INSET - height
+    }
+
+    const center = (position / 100) * viewportHeight
+    if (y < center - height / 2 || y > center + height / 2) return false
+    return edge === 'left'
+      ? x <= TOOLBAR_EDGE_INSET + width
+      : x >= viewportWidth - TOOLBAR_EDGE_INSET - width
+  }, [])
+
+  // Registered before the interactive listener so it updates the shared
+  // pointer/visibility refs first whenever a mouse move fires.
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent): void => {
+      pointerRef.current = { x: event.clientX, y: event.clientY }
+      if (isToolbarDraggingRef.current) return
+      const nearToolbar = isPointerNearToolbar(event.clientX, event.clientY)
+      const overToolbar =
+        event.target instanceof Element && Boolean(event.target.closest('.toolbar'))
+      const shouldBeVisible = nearToolbar || overToolbar
+      if (shouldBeVisible !== isToolbarVisibleRef.current) {
+        isToolbarVisibleRef.current = shouldBeVisible
+        setIsToolbarVisible(shouldBeVisible)
+      }
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [isPointerNearToolbar])
+  useEffect(() => {
     if (isDebugOpen) return
 
     let interactive = false
     const handleMouseMove = (event: MouseEvent): void => {
       const nextInteractive =
-        event.target instanceof Element && Boolean(event.target.closest('.indicator__copy-btn'))
+        isToolbarDraggingRef.current ||
+        Boolean(
+          event.target instanceof Element && event.target.closest('.toolbar, .indicator__copy-btn')
+        )
       if (nextInteractive === interactive) return
       interactive = nextInteractive
       window.api.overlay.setInteractive(interactive)
     }
 
-    document.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mousemove', handleMouseMove)
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mousemove', handleMouseMove)
       if (interactive) window.api.overlay.setInteractive(false)
     }
   }, [isDebugOpen])
+  // When the toolbar appears under a stationary pointer, the forwarded
+  // mousemove that revealed it arrived while the window was still click-through.
+  // Promote the window to interactive so the revealed controls are clickable.
+  useEffect(() => {
+    if (!isToolbarVisible) return
+    const { x, y } = pointerRef.current
+    const element = document.elementFromPoint(x, y)
+    if (element instanceof Element && element.closest('.toolbar')) {
+      window.api.overlay.setInteractive(true)
+    }
+  }, [isToolbarVisible])
   useEffect(() => {
     void window.api.settings
       .getAI()
@@ -533,6 +657,18 @@ function App(): React.JSX.Element {
           aria-hidden="true"
         />
       )}
+      <Toolbar
+        edge={toolbar.edge}
+        position={toolbar.position}
+        visible={isToolbarVisible}
+        isPanelOpen={isDebugOpen}
+        isSelecting={isSelecting}
+        hasRegion={region !== null}
+        onTogglePanel={toggleDebugPanel}
+        onSelectArea={startRegionSelection}
+        onMove={handleToolbarMove}
+        onDraggingChange={handleToolbarDraggingChange}
+      />
       <section
         className={`debug-panel${isDebugOpen ? ' debug-panel--open' : ''}`}
         aria-hidden={!isDebugOpen}

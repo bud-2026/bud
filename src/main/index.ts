@@ -294,6 +294,15 @@ function createWindow(): void {
     }
   })
 
+  // Lets the always-visible toolbar open/close the settings panel without
+  // relying on the Ctrl+Shift+Space global shortcut.
+  ipcMain.on('overlay:set-debug-visible', (event, visible: unknown) => {
+    if (event.sender !== mainWindow.webContents || typeof visible !== 'boolean') {
+      return
+    }
+    setDebugVisible(visible)
+  })
+
   mainWindow.on('ready-to-show', () => {
     setDebugVisible(true)
     mainWindow.show()
