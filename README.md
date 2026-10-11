@@ -1,4 +1,4 @@
-# Project Title 🚀
+# Bud
 
 <div align="center">
 
@@ -7,13 +7,12 @@
   <img src="docs/assets/logo.png" alt="Project Logo" width="120" height="120">
 </a>
 
-### 🏆 Built for [Hackathon Name 2026]
+### Built for: Nebius x NVIDIA Global AI Hackathon 2026
 
-_Subtitle / Tagline: A short, catchy 1-liner describing the core value proposition._
+Voice-Enabled Virtual Assistant with Screen Vision
 
-[![Hackathon Track](https://img.shields.io/badge/Track-AI%20%26%20Innovation-purple.svg)](<>)
+[![Hackathon Track](https://img.shields.io/badge/Track-Apps%20%26%20Agents%20Track-purple.svg)](<>)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status](https://img.shields.io/badge/Status-Hackathon%20Submission-brightgreen.svg)](<>)
 
 [🌐 Live Demo](https://your-demo-link.com) | [📹 2-Min Video Pitch](https://youtube.com/watch?v=your-video) | [📄 Pitch Deck](https://slides.com/your-deck)
 
