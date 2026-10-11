@@ -47,12 +47,27 @@ interface VoiceEvent {
   wake_word?: string
 }
 
-interface VlStatusEvent {
-  state: 'downloading' | 'loading' | 'ready' | 'error'
-  file?: string
+type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
+
+interface VlComponentStatus {
+  phase: VlPhase
   received?: number
   total?: number
+  detail?: string
   message?: string
+}
+
+interface VlStatusSnapshot {
+  llamaVersion: string
+  llamaBackend: string
+  modelAlias: string
+  modelQuant: string
+  mmprojQuant: string
+  runtime: VlComponentStatus
+  model: VlComponentStatus
+  mmproj: VlComponentStatus
+  server: VlComponentStatus
+  port?: number
 }
 
 // Custom APIs for renderer
@@ -115,8 +130,9 @@ const api = {
     }
   },
   vl: {
-    onStatus: (callback: (event: VlStatusEvent) => void): (() => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: VlStatusEvent): void =>
+    getStatus: (): Promise<VlStatusSnapshot> => ipcRenderer.invoke('vl:get-status'),
+    onStatus: (callback: (status: VlStatusSnapshot) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: VlStatusSnapshot): void =>
         callback(data)
       ipcRenderer.on('vl:status', listener)
       return () => ipcRenderer.removeListener('vl:status', listener)

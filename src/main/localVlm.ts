@@ -28,6 +28,7 @@ const MODEL_REPOSITORY_BASE_URL =
   'https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main'
 
 const LLAMA_VERSION = 'b10792'
+const LLAMA_BACKEND = 'CUDA 12.4'
 const LLAMA_RELEASE_BASE_URL = `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}`
 const LLAMA_WIN_ARCHIVES = [
   {
@@ -55,25 +56,81 @@ const MMPROJ_GGUF: ModelFile = {
   minBytes: 200_000_000
 }
 
-export type VlStatusState = 'downloading' | 'loading' | 'ready' | 'error'
+const MODEL_QUANT = 'Q4_K_M'
+const MMPROJ_QUANT = 'Q8_0'
 
-export interface VlStatusEvent {
-  state: VlStatusState
-  file?: string
+export type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
+
+export interface VlComponentStatus {
+  phase: VlPhase
+  /** Bytes received so far (only meaningful while downloading). */
   received?: number
+  /** Total bytes expected, when known (only meaningful while downloading). */
   total?: number
+  /** What is currently happening, e.g. the file being downloaded. */
+  detail?: string
+  /** Human readable failure reason when phase is 'error'. */
   message?: string
 }
+
+export interface VlStatusSnapshot {
+  llamaVersion: string
+  llamaBackend: string
+  modelAlias: string
+  modelQuant: string
+  mmprojQuant: string
+  runtime: VlComponentStatus
+  model: VlComponentStatus
+  mmproj: VlComponentStatus
+  server: VlComponentStatus
+  /** Port the bundled server bound to, once it is starting or ready. */
+  port?: number
+}
+
+type VlComponentId = 'runtime' | 'model' | 'mmproj' | 'server'
 
 let serverProcess: ChildProcess | undefined
 let readyPromise: Promise<void> | undefined
 let isStopping = false
 let activePort: number | undefined
 
-function broadcastStatus(event: VlStatusEvent): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send('vl:status', event)
+const componentStatus: Record<VlComponentId, VlComponentStatus> = {
+  runtime: { phase: 'pending' },
+  model: { phase: 'pending' },
+  mmproj: { phase: 'pending' },
+  server: { phase: 'pending' }
+}
+
+function buildStatusSnapshot(): VlStatusSnapshot {
+  return {
+    llamaVersion: LLAMA_VERSION,
+    llamaBackend: LLAMA_BACKEND,
+    modelAlias: VL_MODEL_ALIAS,
+    modelQuant: MODEL_QUANT,
+    mmprojQuant: MMPROJ_QUANT,
+    runtime: { ...componentStatus.runtime },
+    model: { ...componentStatus.model },
+    mmproj: { ...componentStatus.mmproj },
+    server: { ...componentStatus.server },
+    port: activePort
   }
+}
+
+/** Current provisioning state of the bundled llama.cpp runtime and model files. */
+export function getVlStatus(): VlStatusSnapshot {
+  return buildStatusSnapshot()
+}
+
+function broadcastStatus(): void {
+  const snapshot = buildStatusSnapshot()
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('vl:status', snapshot)
+  }
+}
+
+function setComponentStatus(id: VlComponentId, status: VlComponentStatus): void {
+  componentStatus[id] = status
+  broadcastStatus()
 }
 
 function modelDirectory(): string {
@@ -125,6 +182,7 @@ async function extractZip(zipPath: string, destination: string): Promise<void> {
 async function downloadToFile(
   url: string,
   destination: string,
+  component: VlComponentId,
   description: string,
   minBytes: number
 ): Promise<void> {
@@ -140,13 +198,25 @@ async function downloadToFile(
   let received = 0
   let lastProgressUpdate = 0
 
+  setComponentStatus(component, {
+    phase: 'downloading',
+    detail: description,
+    received,
+    total
+  })
+
   const progress = new Transform({
     transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
       received += chunk.length
       const now = Date.now()
       if (now - lastProgressUpdate >= DOWNLOAD_PROGRESS_INTERVAL_MS) {
         lastProgressUpdate = now
-        broadcastStatus({ state: 'downloading', file: description, received, total })
+        setComponentStatus(component, {
+          phase: 'downloading',
+          detail: description,
+          received,
+          total
+        })
       }
       callback(null, chunk)
     }
@@ -168,9 +238,9 @@ async function downloadToFile(
     }
 
     renameSync(partialPath, destination)
-    broadcastStatus({
-      state: 'downloading',
-      file: description,
+    setComponentStatus(component, {
+      phase: 'downloading',
+      detail: description,
       received: downloadedBytes,
       total: downloadedBytes
     })
@@ -183,6 +253,11 @@ async function downloadToFile(
         // Leftover .part files are removed on the next download attempt.
       }
     }
+    setComponentStatus(component, {
+      phase: 'error',
+      detail: description,
+      message: error instanceof Error ? error.message : String(error)
+    })
     throw error
   }
 }
@@ -191,17 +266,25 @@ async function ensureModelFiles(): Promise<{ modelPath: string; mmprojPath: stri
   const directory = modelDirectory()
   mkdirSync(directory, { recursive: true })
 
-  for (const file of [MODEL_GGUF, MMPROJ_GGUF]) {
+  const targets: ReadonlyArray<{ file: ModelFile; component: VlComponentId }> = [
+    { file: MODEL_GGUF, component: 'model' },
+    { file: MMPROJ_GGUF, component: 'mmproj' }
+  ]
+
+  for (const { file, component } of targets) {
     const destination = join(directory, file.fileName)
     if (existsSync(destination) && statSync(destination).size >= file.minBytes) {
+      setComponentStatus(component, { phase: 'downloaded', detail: file.fileName })
       continue
     }
     await downloadToFile(
       `${MODEL_REPOSITORY_BASE_URL}/${file.fileName}`,
       destination,
+      component,
       file.fileName,
       file.minBytes
     )
+    setComponentStatus(component, { phase: 'downloaded', detail: file.fileName })
   }
 
   return {
@@ -243,17 +326,23 @@ async function provisionLlamaRuntime(): Promise<string> {
 
   const archivePaths: string[] = []
   try {
+    setComponentStatus('runtime', {
+      phase: 'downloading',
+      detail: `build ${LLAMA_VERSION} (${LLAMA_BACKEND})`
+    })
     for (const archive of LLAMA_WIN_ARCHIVES) {
       const archivePath = join(provisionDir, archive.name)
       await downloadToFile(
         `${LLAMA_RELEASE_BASE_URL}/${archive.name}`,
         archivePath,
+        'runtime',
         archive.name,
         archive.minBytes
       )
       archivePaths.push(archivePath)
     }
 
+    setComponentStatus('runtime', { phase: 'downloading', detail: 'Extracting llama.cpp runtime' })
     for (const archivePath of archivePaths) {
       await extractZip(archivePath, extractDir)
     }
@@ -267,7 +356,18 @@ async function provisionLlamaRuntime(): Promise<string> {
       )
     }
 
+    setComponentStatus('runtime', {
+      phase: 'downloaded',
+      detail: `build ${LLAMA_VERSION} (${LLAMA_BACKEND})`
+    })
     return executable
+  } catch (error) {
+    setComponentStatus('runtime', {
+      phase: 'error',
+      detail: `build ${LLAMA_VERSION} (${LLAMA_BACKEND})`,
+      message: error instanceof Error ? error.message : String(error)
+    })
+    throw error
   } finally {
     rmSync(extractDir, { recursive: true, force: true })
     for (const archivePath of archivePaths) {
@@ -282,19 +382,29 @@ async function provisionLlamaRuntime(): Promise<string> {
 
 async function ensureServerExecutable(): Promise<string> {
   const binaryName = serverBinaryName()
+  const runtimeDetail = `build ${LLAMA_VERSION} (${LLAMA_BACKEND})`
 
   // Packaged apps ship the runtime inside the app resources.
   if (app.isPackaged) {
     const packagedExecutable = join(process.resourcesPath, 'vl', 'bin', binaryName)
-    if (existsSync(packagedExecutable)) return packagedExecutable
+    if (existsSync(packagedExecutable)) {
+      setComponentStatus('runtime', { phase: 'downloaded', detail: runtimeDetail })
+      return packagedExecutable
+    }
   }
 
   // Development builds can use a pre-staged copy (npm run prepare:vl).
   const stagedExecutable = join(app.getAppPath(), 'build', 'vl', 'bin', binaryName)
-  if (existsSync(stagedExecutable)) return stagedExecutable
+  if (existsSync(stagedExecutable)) {
+    setComponentStatus('runtime', { phase: 'downloaded', detail: runtimeDetail })
+    return stagedExecutable
+  }
 
   const provisionedExecutable = join(provisionDirectory(), 'bin', binaryName)
-  if (existsSync(provisionedExecutable)) return provisionedExecutable
+  if (existsSync(provisionedExecutable)) {
+    setComponentStatus('runtime', { phase: 'downloaded', detail: runtimeDetail })
+    return provisionedExecutable
+  }
 
   return provisionLlamaRuntime()
 }
@@ -346,8 +456,8 @@ function spawnServer(
     if (serverProcess === child) serverProcess = undefined
     if (isStopping) return
     readyPromise = undefined
-    broadcastStatus({
-      state: 'error',
+    setComponentStatus('server', {
+      phase: 'error',
       message: `Qwen3-VL server exited (code=${code ?? 'unknown'})`
     })
   })
@@ -383,12 +493,12 @@ async function launchLocalVlm(): Promise<void> {
   const port = await findFreePort()
   activePort = port
   console.log(`[vl] Starting Qwen3-VL server on port ${port}`)
-  broadcastStatus({ state: 'loading' })
+  setComponentStatus('server', { phase: 'starting', detail: `127.0.0.1:${port}` })
   const child = spawnServer(executablePath, dirname(executablePath), port, modelPath, mmprojPath)
   serverProcess = child
 
   await waitForServer(child, port)
-  broadcastStatus({ state: 'ready' })
+  setComponentStatus('server', { phase: 'ready', detail: `127.0.0.1:${port}` })
   console.log('[vl] Qwen3-VL server is ready')
 }
 
@@ -412,7 +522,9 @@ export function ensureLocalVlmReady(): Promise<void> {
       stopServer()
       const message = error instanceof Error ? error.message : String(error)
       console.error('[vl] Could not start the local Qwen3-VL server:', message)
-      broadcastStatus({ state: 'error', message })
+      if (componentStatus.server.phase === 'starting') {
+        setComponentStatus('server', { phase: 'error', message })
+      }
       throw error
     })
     readyPromise = attempt

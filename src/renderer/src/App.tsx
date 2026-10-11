@@ -5,6 +5,74 @@ import { askQuestion } from './lib/ai'
 
 const VOICE_HISTORY_MESSAGE_LIMIT = 20
 
+function formatMegabytes(bytes: number): string {
+  return `${Math.floor(bytes / 1e6)} MB`
+}
+
+function describeVlStatus(status: VlComponentStatus): string {
+  switch (status.phase) {
+    case 'pending':
+      return 'Waiting…'
+    case 'downloading': {
+      if (status.total && status.received !== undefined) {
+        const percent = Math.floor((status.received / status.total) * 100)
+        return `Downloading ${formatMegabytes(status.received)} / ${formatMegabytes(
+          status.total
+        )} (${percent}%)`
+      }
+      return 'Downloading…'
+    }
+    case 'downloaded':
+      return 'Downloaded'
+    case 'starting':
+      return 'Starting…'
+    case 'ready':
+      return 'Ready'
+    case 'error':
+      return 'Failed'
+  }
+}
+
+interface VlStatusRowProps {
+  label: string
+  version: string
+  status: VlComponentStatus
+}
+
+function VlStatusRow({ label, version, status }: VlStatusRowProps): React.JSX.Element {
+  const isDownloading = status.phase === 'downloading'
+  const percent =
+    isDownloading && status.total
+      ? Math.min(100, Math.floor(((status.received ?? 0) / status.total) * 100))
+      : 0
+
+  return (
+    <li className="model-status__row">
+      <div className="model-status__head">
+        <span className="model-status__label">{label}</span>
+        <span className={`model-status__state model-status__state--${status.phase}`}>
+          {describeVlStatus(status)}
+        </span>
+      </div>
+      <span className="model-status__version">{version}</span>
+      {isDownloading && percent > 0 ? (
+        <div
+          className="model-status__bar"
+          role="progressbar"
+          aria-valuenow={percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div className="model-status__bar-fill" style={{ width: `${percent}%` }} />
+        </div>
+      ) : null}
+      {status.phase === 'error' && status.message ? (
+        <span className="model-status__message">{status.message}</span>
+      ) : null}
+    </li>
+  )
+}
+
 function App(): React.JSX.Element {
   const [question, setQuestion] = useState('')
   const [ttsText, setTtsText] = useState('')
@@ -19,9 +87,8 @@ function App(): React.JSX.Element {
   const [isTtsLoading, setIsTtsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isDebugOpen, setIsDebugOpen] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState('Starting voice listener...')
-  const [vlStatus, setVlStatus] = useState('')
+  const [vlStatus, setVlStatus] = useState<VlStatusSnapshot | null>(null)
   const [voiceTranscript, setVoiceTranscript] = useState('')
   const [voiceOrbState, setVoiceOrbState] = useState<
     'hidden' | 'listening' | 'analyzing' | 'responding'
@@ -112,32 +179,22 @@ function App(): React.JSX.Element {
         )
       })
   }, [])
-  useEffect(
-    () =>
-      window.api.vl.onStatus((event) => {
-        if (event.state === 'downloading') {
-          const fileName = event.file ?? 'model'
-          setVlStatus(
-            event.total && event.received !== undefined
-              ? `Downloading ${fileName}: ${Math.floor(event.received / 1e6)} / ${Math.floor(
-                  event.total / 1e6
-                )} MB`
-              : `Downloading ${fileName}...`
-          )
-          return
-        }
-        if (event.state === 'loading') {
-          setVlStatus('Starting local Qwen3-VL model...')
-          return
-        }
-        if (event.state === 'ready') {
-          setVlStatus('Local Qwen3-VL model ready')
-          return
-        }
-        setVlStatus(`Local Qwen3-VL error: ${event.message ?? 'unknown error'}`)
-      }),
-    []
-  )
+  useEffect(() => {
+    let disposed = false
+    void window.api.vl
+      .getStatus()
+      .then((status) => {
+        if (!disposed) setVlStatus(status)
+      })
+      .catch(() => {
+        // Status is informational; live updates arrive through onStatus below.
+      })
+    const unsubscribe = window.api.vl.onStatus((status) => setVlStatus(status))
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
+  }, [])
   useEffect(
     () =>
       window.api.voice.onEvent((event) => {
@@ -236,7 +293,6 @@ function App(): React.JSX.Element {
         audioContextRef.current.currentTime,
         nextAudioTimeRef.current
       )
-      setIsSpeaking(true)
     })
     const unsubscribeChunk = window.api.tts.onChunk(({ chunk }) => {
       const context = audioContextRef.current
@@ -265,7 +321,6 @@ function App(): React.JSX.Element {
           scheduleBoundingBoxClear()
           pendingBoxClearRef.current = false
         }
-        setIsSpeaking(false)
         isSpeakingRef.current = false
         if (voiceSessionActiveRef.current) {
           setOrbState('listening')
@@ -280,7 +335,6 @@ function App(): React.JSX.Element {
         scheduleBoundingBoxClear()
         pendingBoxClearRef.current = false
       }
-      setIsSpeaking(false)
       isSpeakingRef.current = false
       setOrbState('hidden')
       setError(message)
@@ -357,12 +411,6 @@ function App(): React.JSX.Element {
     }
   }
 
-  const clearBoundingBoxes = (): void => {
-    if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
-    pendingBoxClearRef.current = false
-    setResult((currentResult) => (currentResult ? { ...currentResult, boxes: [] } : currentResult))
-  }
-
   return (
     <main className="overlay" aria-label="Screen overlay">
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
@@ -372,6 +420,38 @@ function App(): React.JSX.Element {
       >
         <div className="debug-panel__content">
           <h1 className="debug-panel__title">Settings Panel</h1>
+          <div className="question-panel">
+            <label htmlFor="screen-question">Ctrl+Shift+Space to toggle panel</label>
+            <h2 className="question-panel__title">Installations</h2>
+            {vlStatus ? (
+              <ul className="model-status">
+                <VlStatusRow
+                  label="llama.cpp runtime"
+                  version={`build ${vlStatus.llamaVersion} · ${vlStatus.llamaBackend}`}
+                  status={vlStatus.runtime}
+                />
+                <VlStatusRow
+                  label="Vision model"
+                  version={`${vlStatus.modelAlias} · ${vlStatus.modelQuant}`}
+                  status={vlStatus.model}
+                />
+                <VlStatusRow
+                  label="Vision projector"
+                  version={`mmproj · ${vlStatus.mmprojQuant}`}
+                  status={vlStatus.mmproj}
+                />
+                <VlStatusRow
+                  label="Inference server"
+                  version={vlStatus.port ? `127.0.0.1:${vlStatus.port}` : 'Not running'}
+                  status={vlStatus.server}
+                />
+              </ul>
+            ) : (
+              <p className="question-panel__voice-status">Checking local model…</p>
+            )}
+          </div>
+
+
           <form className="question-panel" onSubmit={handleSettingsSubmit}>
             <h2 className="question-panel__title">AI Settings</h2>
             <div className="ai-settings__group">
@@ -411,14 +491,7 @@ function App(): React.JSX.Element {
 
           <form className="question-panel" onSubmit={handleSubmit}>
             <h2 className="question-panel__title">Debug</h2>
-            <label htmlFor="screen-question">
-              Ask about your screen
-              <span className="question-panel__shortcut">
-                {isSpeaking ? 'Speaking · ' : ''}Ctrl+Shift+Space to toggle debug
-              </span>
-            </label>
             <p className="question-panel__voice-status">{voiceStatus}</p>
-            {vlStatus && <p className="question-panel__voice-status">{vlStatus}</p>}
             <div className="question-panel__controls">
               <input
                 id="screen-question"
@@ -451,14 +524,6 @@ function App(): React.JSX.Element {
               </button>
             </div>
           </form>
-          <button
-            className="debug-panel__clear"
-            type="button"
-            onClick={clearBoundingBoxes}
-            disabled={!result?.boxes.length}
-          >
-            Clear bounding boxes
-          </button>
           {error && <p className="question-panel__error">{error}</p>}
         </div>
       </section>

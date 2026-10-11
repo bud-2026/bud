@@ -20,6 +20,7 @@ import {
   VL_MODEL_ALIAS,
   ensureLocalVlmReady,
   getLocalVlmBaseUrl,
+  getVlStatus,
   startLocalVlm,
   stopLocalVlm
 } from './localVlm'
@@ -241,7 +242,7 @@ function createWindow(): void {
   // fullscreen applications and regular always-on-top windows.
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
-  let debugVisible = false
+  let debugVisible = true
   const setDebugVisible = (visible: boolean): void => {
     debugVisible = visible
     mainWindow.setIgnoreMouseEvents(!visible, { forward: true })
@@ -268,7 +269,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    setDebugVisible(false)
+    setDebugVisible(true)
     mainWindow.show()
   })
 
@@ -285,7 +286,7 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  let isDebugVisible = false
+  let isDebugVisible = true
   const toggleDebugVisibility = (): void => {
     isDebugVisible = !isDebugVisible
     setDebugVisible(isDebugVisible)
@@ -1042,6 +1043,8 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('settings:get-ai', () => getAISettings())
+
+  ipcMain.handle('vl:get-status', () => getVlStatus())
 
   ipcMain.handle('settings:save-ai', (_event, settings: unknown) => {
     if (

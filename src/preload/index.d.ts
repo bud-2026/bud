@@ -24,6 +24,29 @@ declare global {
     generalModelId: string
   }
 
+  type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
+
+  interface VlComponentStatus {
+    phase: VlPhase
+    received?: number
+    total?: number
+    detail?: string
+    message?: string
+  }
+
+  interface VlStatusSnapshot {
+    llamaVersion: string
+    llamaBackend: string
+    modelAlias: string
+    modelQuant: string
+    mmprojQuant: string
+    runtime: VlComponentStatus
+    model: VlComponentStatus
+    mmproj: VlComponentStatus
+    server: VlComponentStatus
+    port?: number
+  }
+
   interface Api {
     ai: {
       ask: (prompt: string, imageUrl?: string) => Promise<string>
@@ -73,15 +96,8 @@ declare global {
       saveAI: (settings: AISettings) => Promise<AISettings>
     }
     vl: {
-      onStatus: (
-        callback: (event: {
-          state: 'downloading' | 'loading' | 'ready' | 'error'
-          file?: string
-          received?: number
-          total?: number
-          message?: string
-        }) => void
-      ) => () => void
+      getStatus: () => Promise<VlStatusSnapshot>
+      onStatus: (callback: (status: VlStatusSnapshot) => void) => () => void
     }
   }
 

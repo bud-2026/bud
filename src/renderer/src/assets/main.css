@@ -123,7 +123,6 @@ body {
   animation: voice-orb-antenna-pulse 1.4s ease-in-out infinite;
 }
 
-
 .voice-orb__microphone {
   position: relative;
   display: block;
@@ -573,6 +572,87 @@ body {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.model-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.model-status__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-status__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-status__label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.model-status__version {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.model-status__state {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.model-status__state--pending {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.model-status__state--downloading {
+  color: #74c0fc;
+}
+
+.model-status__state--downloaded,
+.model-status__state--ready {
+  color: #63e6be;
+}
+
+.model-status__state--starting {
+  color: #ffd43b;
+}
+
+.model-status__state--error {
+  color: #ff8787;
+}
+
+.model-status__bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.model-status__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #74c0fc;
+  transition: width 0.2s ease;
+}
+
+.model-status__message {
+  color: rgba(255, 135, 135, 0.9);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .question-panel input:focus {
