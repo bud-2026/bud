@@ -19,12 +19,6 @@ declare global {
   }
 
   interface AISettings {
-    baseUrl: string
-    apiKey: string
-    modelId: string
-    classificationBaseUrl: string
-    classificationApiKey: string
-    classificationModelId: string
     generalBaseUrl: string
     generalApiKey: string
     generalModelId: string

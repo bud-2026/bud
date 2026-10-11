@@ -9,12 +9,6 @@ function App(): React.JSX.Element {
   const [question, setQuestion] = useState('')
   const [ttsText, setTtsText] = useState('')
   const [aiSettings, setAiSettings] = useState<AISettings>({
-    baseUrl: '',
-    apiKey: '',
-    modelId: '',
-    classificationBaseUrl: '',
-    classificationApiKey: '',
-    classificationModelId: '',
     generalBaseUrl: '',
     generalApiKey: '',
     generalModelId: ''
@@ -380,56 +374,6 @@ function App(): React.JSX.Element {
           <h1 className="debug-panel__title">Settings Panel</h1>
           <form className="question-panel" onSubmit={handleSettingsSubmit}>
             <h2 className="question-panel__title">AI Settings</h2>
-            <div className="ai-settings__group">
-              <strong>Screen analysis</strong>
-              <input
-                value={aiSettings.baseUrl}
-                onChange={(event) => setAiSettings({ ...aiSettings, baseUrl: event.target.value })}
-                placeholder="Screen base URL"
-                disabled={isSavingSettings}
-              />
-              <input
-                type="password"
-                value={aiSettings.apiKey}
-                onChange={(event) => setAiSettings({ ...aiSettings, apiKey: event.target.value })}
-                placeholder="Screen API key"
-                disabled={isSavingSettings}
-              />
-              <input
-                value={aiSettings.modelId}
-                onChange={(event) => setAiSettings({ ...aiSettings, modelId: event.target.value })}
-                placeholder="Screen model ID"
-                disabled={isSavingSettings}
-              />
-            </div>
-            <div className="ai-settings__group">
-              <strong>Classification</strong>
-              <input
-                value={aiSettings.classificationBaseUrl}
-                onChange={(event) =>
-                  setAiSettings({ ...aiSettings, classificationBaseUrl: event.target.value })
-                }
-                placeholder="Classification base URL"
-                disabled={isSavingSettings}
-              />
-              <input
-                type="password"
-                value={aiSettings.classificationApiKey}
-                onChange={(event) =>
-                  setAiSettings({ ...aiSettings, classificationApiKey: event.target.value })
-                }
-                placeholder="Classification API key"
-                disabled={isSavingSettings}
-              />
-              <input
-                value={aiSettings.classificationModelId}
-                onChange={(event) =>
-                  setAiSettings({ ...aiSettings, classificationModelId: event.target.value })
-                }
-                placeholder="Classification model ID"
-                disabled={isSavingSettings}
-              />
-            </div>
             <div className="ai-settings__group">
               <strong>General responses</strong>
               <input

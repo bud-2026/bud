@@ -15,18 +15,22 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { findFreePort } from './freePort'
 import {
-  VL_BASE_URL,
+  VL_MODEL_ALIAS,
   ensureLocalVlmReady,
-  isLocalVlmUrl,
+  getLocalVlmBaseUrl,
   startLocalVlm,
   stopLocalVlm
 } from './localVlm'
 
 dotenv.config({ path: join(app.getAppPath(), '.env') })
 
-const ttsPort = 8765
-const ttsBaseUrl = `http://127.0.0.1:${ttsPort}`
+// Placeholder the OpenAI client requires; the bundled llama-server ignores it.
+const LOCAL_VLM_API_KEY = 'local'
+
+// Chosen at launch so the bundled TTS backend never clashes on a fixed port.
+let ttsBaseUrl: string | undefined
 const screenCaptureMaxDimension = 1920
 const packagedBackendDirectory = join(process.resourcesPath, 'python')
 let ttsProcess: ChildProcess | undefined
@@ -36,25 +40,10 @@ function getAISettingsPath(): string {
   return join(app.getPath('userData'), 'ai-settings.json')
 }
 
-// Settings saved while screen answers were served by LM Studio's local server.
-const LEGACY_LM_STUDIO_BASE_URLS = new Set([
-  'http://127.0.0.1:1234/v1/',
-  'http://127.0.0.1:1234/v1',
-  'http://localhost:1234/v1/',
-  'http://localhost:1234/v1'
-])
-
-// Screen and classification questions run on the bundled Qwen3-VL server,
-// general knowledge questions stay on the Nebius API.
+// Screen analysis and classification always run on the bundled Qwen3-VL
+// server; only general knowledge questions are user-configurable (Nebius API).
 function getAISettings(): AISettings {
   const defaults: AISettings = {
-    baseUrl: process.env.AI_BASE_URL ?? VL_BASE_URL,
-    apiKey: process.env.API_KEY ?? 'local',
-    modelId: process.env.MODEL_ID ?? 'qwen/qwen3-vl-4b',
-    classificationBaseUrl:
-      process.env.CLASSIFICATION_BASE_URL ?? process.env.AI_BASE_URL ?? VL_BASE_URL,
-    classificationApiKey: process.env.CLASSIFICATION_API_KEY ?? 'local',
-    classificationModelId: process.env.CLASSIFICATION_MODEL_ID ?? 'qwen/qwen3-vl-4b',
     generalBaseUrl: process.env.GENERAL_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     generalApiKey: process.env.GENERAL_API_KEY ?? '',
     generalModelId: process.env.GENERAL_MODEL_ID ?? ''
@@ -63,21 +52,6 @@ function getAISettings(): AISettings {
   try {
     const stored = JSON.parse(readFileSync(getAISettingsPath(), 'utf8')) as Partial<AISettings>
     return {
-      baseUrl: typeof stored.baseUrl === 'string' ? stored.baseUrl : defaults.baseUrl,
-      apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : defaults.apiKey,
-      modelId: typeof stored.modelId === 'string' ? stored.modelId : defaults.modelId,
-      classificationBaseUrl:
-        typeof stored.classificationBaseUrl === 'string'
-          ? stored.classificationBaseUrl
-          : defaults.classificationBaseUrl,
-      classificationApiKey:
-        typeof stored.classificationApiKey === 'string'
-          ? stored.classificationApiKey
-          : defaults.classificationApiKey,
-      classificationModelId:
-        typeof stored.classificationModelId === 'string'
-          ? stored.classificationModelId
-          : defaults.classificationModelId,
       generalBaseUrl:
         typeof stored.generalBaseUrl === 'string' ? stored.generalBaseUrl : defaults.generalBaseUrl,
       generalApiKey:
@@ -94,41 +68,40 @@ function saveAISettings(settings: AISettings): void {
   writeFileSync(getAISettingsPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
 }
 
-// Rewrites stored settings that still point at LM Studio (port 1234) so screen
-// answers come from the bundled Qwen3-VL server instead.
+// Drops settings that are no longer user-configurable now that screen analysis
+// and classification always use the bundled Qwen3-VL server.
 function migrateLegacyAISettings(): void {
   const settingsPath = getAISettingsPath()
   if (!existsSync(settingsPath)) return
 
   try {
-    const stored = JSON.parse(readFileSync(settingsPath, 'utf8')) as Partial<AISettings>
+    const stored = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>
     let changed = false
 
-    for (const key of ['baseUrl', 'classificationBaseUrl'] as const) {
-      const value = stored[key]
-      if (typeof value === 'string' && LEGACY_LM_STUDIO_BASE_URLS.has(value)) {
-        stored[key] = VL_BASE_URL
+    for (const key of [
+      'baseUrl',
+      'apiKey',
+      'modelId',
+      'classificationBaseUrl',
+      'classificationApiKey',
+      'classificationModelId'
+    ]) {
+      if (key in stored) {
+        delete stored[key]
         changed = true
       }
     }
 
     if (changed) {
       writeFileSync(settingsPath, `${JSON.stringify(stored, null, 2)}\n`, 'utf8')
-      console.log('Migrated stored AI settings from LM Studio to the bundled Qwen3-VL server')
+      console.log('Migrated stored AI settings for the bundled Qwen3-VL server')
     }
   } catch (error) {
     console.error('Could not migrate stored AI settings:', error)
   }
 }
 
-// Waits for the bundled model server only when a caller actually uses it.
-async function ensureLocalVlmFor(...baseUrls: string[]): Promise<void> {
-  if (baseUrls.some((baseUrl) => isLocalVlmUrl(baseUrl))) {
-    await ensureLocalVlmReady()
-  }
-}
-
-function startTTSBackend(): void {
+async function startTTSBackend(): Promise<void> {
   const isPackaged = app.isPackaged
   const backendDirectory = isPackaged
     ? join(packagedBackendDirectory, 'tts')
@@ -143,9 +116,12 @@ function startTTSBackend(): void {
     return
   }
 
+  const port = await findFreePort()
+  ttsBaseUrl = `http://127.0.0.1:${port}`
+
   ttsProcess = spawn(
     pythonExecutable,
-    isPackaged ? ['--port', String(ttsPort)] : [backendScript, '--port', String(ttsPort)],
+    isPackaged ? ['--port', String(port)] : [backendScript, '--port', String(port)],
     {
       cwd: backendDirectory,
       env: {
@@ -160,14 +136,16 @@ function startTTSBackend(): void {
   ttsProcess.on('exit', (code, signal) => {
     console.log(`TTS backend exited (code=${code}, signal=${signal ?? 'none'})`)
     ttsProcess = undefined
+    ttsBaseUrl = undefined
   })
 }
 
 function stopTTSBackend(): void {
   if (ttsProcess && !ttsProcess.killed) {
     ttsProcess.kill()
-    ttsProcess = undefined
   }
+  ttsProcess = undefined
+  ttsBaseUrl = undefined
 }
 
 function startVoiceBackend(mainWindow: BrowserWindow): void {
@@ -327,13 +305,13 @@ interface AIRequest {
   imageUrl?: string
 }
 
-interface AISettings {
+interface AIClientSettings {
   baseUrl: string
   apiKey: string
   modelId: string
-  classificationBaseUrl: string
-  classificationApiKey: string
-  classificationModelId: string
+}
+
+interface AISettings {
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
@@ -575,28 +553,27 @@ function parseScreenResponse(content: string): ScreenAIResponse {
   }
 }
 
-function getDedicatedAISettings(prefix: 'CLASSIFICATION' | 'GENERAL'): AISettings {
+function getGeneralAISettings(): AIClientSettings {
   const settings = getAISettings()
-  const isClassification = prefix === 'CLASSIFICATION'
   return {
-    baseUrl: isClassification ? settings.classificationBaseUrl : settings.generalBaseUrl,
-    apiKey: isClassification ? settings.classificationApiKey : settings.generalApiKey,
-    modelId: isClassification ? settings.classificationModelId : settings.generalModelId,
-    classificationBaseUrl: '',
-    classificationApiKey: '',
-    classificationModelId: '',
-    generalBaseUrl: '',
-    generalApiKey: '',
-    generalModelId: ''
+    baseUrl: settings.generalBaseUrl,
+    apiKey: settings.generalApiKey,
+    modelId: settings.generalModelId
   }
 }
 
-function createAIClient(
-  settings: AISettings,
-  provider: 'classification' | 'general'
-): { client: OpenAI; model: string } {
-  if (!settings.apiKey) throw new Error(`${provider} API key is not configured`)
-  if (!settings.modelId) throw new Error(`${provider} model ID is not configured`)
+// The bundled Qwen3-VL server always uses a fixed alias and placeholder key;
+// only its base URL varies (the free port chosen at launch).
+function createLocalVlmClient(): { client: OpenAI; model: string } {
+  return {
+    client: new OpenAI({ baseURL: getLocalVlmBaseUrl(), apiKey: LOCAL_VLM_API_KEY }),
+    model: VL_MODEL_ALIAS
+  }
+}
+
+function createGeneralClient(settings: AIClientSettings): { client: OpenAI; model: string } {
+  if (!settings.apiKey) throw new Error('general API key is not configured')
+  if (!settings.modelId) throw new Error('general model ID is not configured')
   return {
     client: new OpenAI({ baseURL: settings.baseUrl, apiKey: settings.apiKey }),
     model: settings.modelId
@@ -607,9 +584,8 @@ async function classifyQuestion(
   prompt: string,
   history: ScreenConversationMessage[]
 ): Promise<QuestionType> {
-  const settings = getDedicatedAISettings('CLASSIFICATION')
-  await ensureLocalVlmFor(settings.baseUrl)
-  const { client, model } = createAIClient(settings, 'classification')
+  await ensureLocalVlmReady()
+  const { client, model } = createLocalVlmClient()
 
   const response = await client.chat.completions.create({
     model,
@@ -663,27 +639,11 @@ Regardless of context, always return the exact same JSON object structure. Never
 }
 
 async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
-  const settings = getAISettings()
-  await ensureLocalVlmFor(settings.baseUrl)
-  const apiKey = settings.apiKey
-  const model = settings.modelId
+  await ensureLocalVlmReady()
+  const { client, model } = createLocalVlmClient()
 
-  if (!apiKey) {
-    throw new Error('API_KEY is not configured')
-  }
-
-  if (!model) {
-    throw new Error('MODEL_ID is not configured')
-  }
-
-  const client = new OpenAI({
-    baseURL: settings.baseUrl,
-    apiKey
-  })
   const response = await client.chat.completions.create({
     model,
-    // reasoning_effort only applies to hosted reasoning models.
-    ...(isLocalVlmUrl(settings.baseUrl) ? {} : { reasoning_effort: 'none' as const }),
     messages: [
       {
         role: 'system',
@@ -723,14 +683,13 @@ async function askGeneral(
   prompt: string,
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
-  const settings = getDedicatedAISettings('GENERAL')
-  await ensureLocalVlmFor(settings.baseUrl)
-  const { client, model } = createAIClient(settings, 'general')
+  const settings = getGeneralAISettings()
+  const { client, model } = createGeneralClient(settings)
 
   const response = await client.chat.completions.create({
     model,
     // reasoning_effort only applies to hosted reasoning models.
-    ...(isLocalVlmUrl(settings.baseUrl) ? {} : { reasoning_effort: 'none' as const }),
+    reasoning_effort: 'none' as const,
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -813,25 +772,12 @@ async function askAboutScreen(
   prompt: string,
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
-  const settings = getAISettings()
-  await ensureLocalVlmFor(settings.baseUrl)
+  await ensureLocalVlmReady()
   const imageUrl = await capturePrimaryScreen()
-  const apiKey = settings.apiKey
-  const model = settings.modelId
-
-  if (!apiKey || !model) {
-    throw new Error('API_KEY and MODEL_ID must be configured')
-  }
-
-  const client = new OpenAI({
-    baseURL: settings.baseUrl,
-    apiKey
-  })
+  const { client, model } = createLocalVlmClient()
 
   const response = await client.chat.completions.create({
     model,
-    // reasoning_effort only applies to hosted reasoning models.
-    ...(isLocalVlmUrl(settings.baseUrl) ? {} : { reasoning_effort: 'none' as const }),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -914,6 +860,7 @@ Regardless of context, always return the exact same JSON object structure. Never
 }
 
 async function streamTTS(text: string, webContents: Electron.WebContents): Promise<void> {
+  if (!ttsBaseUrl) throw new Error('TTS backend is not available')
   const requestId = randomUUID()
   const response = await fetch(`${ttsBaseUrl}/tts-stream`, {
     method: 'POST',
@@ -956,7 +903,7 @@ async function streamTTS(text: string, webContents: Electron.WebContents): Promi
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   migrateLegacyAISettings()
-  startTTSBackend()
+  void startTTSBackend()
   startLocalVlm()
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
@@ -1100,24 +1047,6 @@ app.whenReady().then(() => {
     if (
       typeof settings !== 'object' ||
       settings === null ||
-      !('baseUrl' in settings) ||
-      typeof settings.baseUrl !== 'string' ||
-      !settings.baseUrl.trim() ||
-      !('apiKey' in settings) ||
-      typeof settings.apiKey !== 'string' ||
-      !settings.apiKey.trim() ||
-      !('modelId' in settings) ||
-      typeof settings.modelId !== 'string' ||
-      !settings.modelId.trim() ||
-      !('classificationBaseUrl' in settings) ||
-      typeof settings.classificationBaseUrl !== 'string' ||
-      !settings.classificationBaseUrl.trim() ||
-      !('classificationApiKey' in settings) ||
-      typeof settings.classificationApiKey !== 'string' ||
-      !settings.classificationApiKey.trim() ||
-      !('classificationModelId' in settings) ||
-      typeof settings.classificationModelId !== 'string' ||
-      !settings.classificationModelId.trim() ||
       !('generalBaseUrl' in settings) ||
       typeof settings.generalBaseUrl !== 'string' ||
       !settings.generalBaseUrl.trim() ||
@@ -1131,28 +1060,16 @@ app.whenReady().then(() => {
       throw new Error('AI settings require a base URL, API key, and model ID')
     }
 
-    for (const baseUrlValue of [
-      settings.baseUrl,
-      settings.classificationBaseUrl,
-      settings.generalBaseUrl
-    ]) {
-      try {
-        const baseUrl = new URL(baseUrlValue)
-        if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
-          throw new Error('unsupported protocol')
-        }
-      } catch {
-        throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
+    try {
+      const baseUrl = new URL(settings.generalBaseUrl)
+      if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
+        throw new Error('unsupported protocol')
       }
+    } catch {
+      throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
     }
 
     const savedSettings = {
-      baseUrl: settings.baseUrl.trim(),
-      apiKey: settings.apiKey.trim(),
-      modelId: settings.modelId.trim(),
-      classificationBaseUrl: settings.classificationBaseUrl.trim(),
-      classificationApiKey: settings.classificationApiKey.trim(),
-      classificationModelId: settings.classificationModelId.trim(),
       generalBaseUrl: settings.generalBaseUrl.trim(),
       generalApiKey: settings.generalApiKey.trim(),
       generalModelId: settings.generalModelId.trim()

@@ -15,15 +15,11 @@ import { dirname, join } from 'path'
 import { Readable, Transform, type TransformCallback } from 'stream'
 import type { ReadableStream as WebReadableStream } from 'node:stream/web'
 import { pipeline } from 'stream/promises'
+import { findFreePort } from './freePort'
 
-/** Local port served by the bundled llama-server process. */
-export const VL_PORT = 8766
+/** Alias advertised by llama-server; the local OpenAI client targets it. */
+export const VL_MODEL_ALIAS = 'qwen/qwen3-vl-4b'
 
-/** OpenAI-compatible base URL of the bundled Qwen3-VL server. */
-export const VL_BASE_URL = `http://127.0.0.1:${VL_PORT}/v1/`
-
-/** Alias advertised by llama-server, matches the model ID stored in AI settings. */
-const VL_MODEL_ALIAS = 'qwen/qwen3-vl-4b'
 const VL_CONTEXT_SIZE = 8192
 const HEALTH_TIMEOUT_MS = 180_000
 const DOWNLOAD_PROGRESS_INTERVAL_MS = 500
@@ -72,6 +68,7 @@ export interface VlStatusEvent {
 let serverProcess: ChildProcess | undefined
 let readyPromise: Promise<void> | undefined
 let isStopping = false
+let activePort: number | undefined
 
 function broadcastStatus(event: VlStatusEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -91,15 +88,10 @@ function serverBinaryName(): string {
   return process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
 }
 
-/** Returns true when the given base URL points at the bundled Qwen3-VL server. */
-export function isLocalVlmUrl(baseUrl: string): boolean {
-  try {
-    const url = new URL(baseUrl.trim())
-    const isLoopback = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(url.hostname)
-    return isLoopback && url.port === String(VL_PORT)
-  } catch {
-    return false
-  }
+/** Base URL of the running bundled server (uses the free port chosen at launch). */
+export function getLocalVlmBaseUrl(): string {
+  if (!activePort) throw new Error('The local Qwen3-VL server is not running')
+  return `http://127.0.0.1:${activePort}/v1/`
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -310,6 +302,7 @@ async function ensureServerExecutable(): Promise<string> {
 function spawnServer(
   executablePath: string,
   binDirectory: string,
+  port: number,
   modelPath: string,
   mmprojPath: string
 ): ChildProcess {
@@ -321,7 +314,7 @@ function spawnServer(
     '--host',
     '127.0.0.1',
     '--port',
-    String(VL_PORT),
+    String(port),
     '--alias',
     VL_MODEL_ALIAS,
     '--jinja',
@@ -362,7 +355,7 @@ function spawnServer(
   return child
 }
 
-async function waitForServer(child: ChildProcess): Promise<void> {
+async function waitForServer(child: ChildProcess, port: number): Promise<void> {
   const deadline = Date.now() + HEALTH_TIMEOUT_MS
 
   while (Date.now() < deadline) {
@@ -371,7 +364,7 @@ async function waitForServer(child: ChildProcess): Promise<void> {
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:${VL_PORT}/health`)
+      const response = await fetch(`http://127.0.0.1:${port}/health`)
       if (response.ok) return
     } catch {
       // The server is not listening yet; keep polling.
@@ -387,11 +380,14 @@ async function launchLocalVlm(): Promise<void> {
   const executablePath = await ensureServerExecutable()
   const { modelPath, mmprojPath } = await ensureModelFiles()
 
+  const port = await findFreePort()
+  activePort = port
+  console.log(`[vl] Starting Qwen3-VL server on port ${port}`)
   broadcastStatus({ state: 'loading' })
-  const child = spawnServer(executablePath, dirname(executablePath), modelPath, mmprojPath)
+  const child = spawnServer(executablePath, dirname(executablePath), port, modelPath, mmprojPath)
   serverProcess = child
 
-  await waitForServer(child)
+  await waitForServer(child, port)
   broadcastStatus({ state: 'ready' })
   console.log('[vl] Qwen3-VL server is ready')
 }
@@ -401,6 +397,7 @@ function stopServer(): void {
     serverProcess.kill()
   }
   serverProcess = undefined
+  activePort = undefined
 }
 
 /**
