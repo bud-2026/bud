@@ -4,6 +4,7 @@ import Indicator from './components/Indicator'
 import RegionSelector from './components/RegionSelector'
 import Toolbar, { type ToolbarEdge } from './components/Toolbar'
 import VoiceOrb from './components/VoiceOrb'
+import SettingsPanel from './components/settings/SettingsPanel'
 import { askQuestion } from './lib/ai'
 
 const VOICE_HISTORY_MESSAGE_LIMIT = 20
@@ -47,103 +48,10 @@ function readStoredToolbarState(): ToolbarState {
   return { edge: 'top', position: 50 }
 }
 
-function formatMegabytes(bytes: number): string {
-  return `${Math.floor(bytes / 1e6)} MB`
-}
-
-// Shared status shape for every bundled component (vision, speech, TTS). The
-// vision server reports byte progress and a `downloaded` phase; the speech
-// backends additionally use `loading` and `off`.
-type ComponentPhase = VlPhase | BackendPhase
-
-interface ComponentStatus {
-  phase: ComponentPhase
-  received?: number
-  total?: number
-  detail?: string
-  message?: string
-}
-
-function describeStatus(status: ComponentStatus): string {
-  switch (status.phase) {
-    case 'pending':
-      return 'Waiting…'
-    case 'downloading': {
-      if (status.total && status.received !== undefined) {
-        const percent = Math.floor((status.received / status.total) * 100)
-        return `Downloading ${formatMegabytes(status.received)} / ${formatMegabytes(
-          status.total
-        )} (${percent}%)`
-      }
-      return 'Downloading…'
-    }
-    case 'loading':
-      return 'Loading…'
-    case 'downloaded':
-      return 'Downloaded'
-    case 'starting':
-      return 'Starting…'
-    case 'ready':
-      return 'Ready'
-    case 'error':
-      return 'Failed'
-    case 'off':
-      return 'Off'
-  }
-}
-
-interface ModelStatusRowProps {
-  label: string
-  version: string
-  status: ComponentStatus
-}
-
-function ModelStatusRow({ label, version, status }: ModelStatusRowProps): React.JSX.Element {
-  const isDownloading = status.phase === 'downloading'
-  const percent =
-    isDownloading && status.total
-      ? Math.min(100, Math.floor(((status.received ?? 0) / status.total) * 100))
-      : 0
-
-  return (
-    <li className="model-status__row">
-      <div className="model-status__head">
-        <span className="model-status__label">{label}</span>
-        <span className={`model-status__state model-status__state--${status.phase}`}>
-          {describeStatus(status)}
-        </span>
-      </div>
-      <span className="model-status__version">{version}</span>
-      {isDownloading && percent > 0 ? (
-        <div
-          className="model-status__bar"
-          role="progressbar"
-          aria-valuenow={percent}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div className="model-status__bar-fill" style={{ width: `${percent}%` }} />
-        </div>
-      ) : null}
-      {status.phase === 'error' && status.message ? (
-        <span className="model-status__message">{status.message}</span>
-      ) : null}
-    </li>
-  )
-}
-
 function App(): React.JSX.Element {
   const [question, setQuestion] = useState('')
-  const [ttsText, setTtsText] = useState('')
-  const [aiSettings, setAiSettings] = useState<AISettings>({
-    generalBaseUrl: '',
-    generalApiKey: '',
-    generalModelId: ''
-  })
-  const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [result, setResult] = useState<ScreenAIResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isTtsLoading, setIsTtsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isDebugOpen, setIsDebugOpen] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState('Starting voice listener...')
@@ -266,6 +174,9 @@ function App(): React.JSX.Element {
         setVoiceStatus('Auto-listening in selected area · Esc to stop')
       } else {
         setVoiceStatus('Area selected · type a question to analyze it')
+        // With voice off there is nothing to listen for, so surface the ask bar
+        // so the user can immediately type a question about the selected area.
+        setIsAskOpen(true)
       }
     },
     [startAutoListen]
@@ -469,16 +380,6 @@ function App(): React.JSX.Element {
     const { x, y } = pointerRef.current
     setOverlayInteractive(document.elementFromPoint(x, y))
   }, [isDebugOpen, isAskOpen, isToolbarVisible, isSelecting, setOverlayInteractive])
-  useEffect(() => {
-    void window.api.settings
-      .getAI()
-      .then(setAiSettings)
-      .catch((requestError: unknown) => {
-        setError(
-          requestError instanceof Error ? requestError.message : 'Could not load AI settings'
-        )
-      })
-  }, [])
   useEffect(() => {
     let disposed = false
     void window.api.voice
@@ -768,36 +669,6 @@ function App(): React.JSX.Element {
     void submitQuestion(prompt)
   }, [askValue, closeAskBar, submitQuestion])
 
-  const handleTtsSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault()
-    const text = ttsText.trim()
-
-    if (!text || isTtsLoading) return
-
-    setIsTtsLoading(true)
-    setError(null)
-    try {
-      await window.api.tts.speak(text)
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'TTS request failed')
-    } finally {
-      setIsTtsLoading(false)
-    }
-  }
-
-  const handleSettingsSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault()
-    setIsSavingSettings(true)
-    setError(null)
-    try {
-      setAiSettings(await window.api.settings.saveAI(aiSettings))
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Could not save AI settings')
-    } finally {
-      setIsSavingSettings(false)
-    }
-  }
-
   return (
     <main className="overlay" aria-label="Screen overlay">
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
@@ -838,211 +709,29 @@ function App(): React.JSX.Element {
           disabled={isLoading}
         />
       )}
-      <section
-        className={`debug-panel${isDebugOpen ? ' debug-panel--open' : ''}`}
-        aria-hidden={!isDebugOpen}
-      >
-        <div className="debug-panel__content">
-          <h1 className="debug-panel__title">Settings Panel</h1>
-          <div className="question-panel">
-            <label className='keybind-label' htmlFor="screen-question">Ctrl+Shift+Space to toggle panel</label>
-            <h2 className="question-panel__title">Installations</h2>
-            {vlStatus || sttStatus || ttsStatus ? (
-              <ul className="model-status">
-                {vlStatus ? (
-                  <>
-                    <ModelStatusRow
-                      label="llama.cpp runtime"
-                      version={`build ${vlStatus.llamaVersion} · ${vlStatus.llamaBackend}`}
-                      status={vlStatus.runtime}
-                    />
-                    <ModelStatusRow
-                      label="Vision model"
-                      version={`${vlStatus.modelAlias} · ${vlStatus.modelQuant}`}
-                      status={vlStatus.model}
-                    />
-                    <ModelStatusRow
-                      label="Vision projector"
-                      version={`mmproj · ${vlStatus.mmprojQuant}`}
-                      status={vlStatus.mmproj}
-                    />
-                    <ModelStatusRow
-                      label="Inference server"
-                      version={vlStatus.port ? `127.0.0.1:${vlStatus.port}` : 'Not running'}
-                      status={vlStatus.server}
-                    />
-                  </>
-                ) : null}
-                {sttStatus ? (
-                  <>
-                    <ModelStatusRow
-                      label="Wake word"
-                      version="openwakeword · hey bud"
-                      status={sttStatus.wakeWord}
-                    />
-                    <ModelStatusRow
-                      label="Speech-to-text"
-                      version="Moonshine small streaming · en"
-                      status={sttStatus.transcription}
-                    />
-                  </>
-                ) : null}
-                {ttsStatus ? (
-                  <ModelStatusRow
-                    label="Text-to-speech"
-                    version="Pocket-TTS · voice jane"
-                    status={ttsStatus}
-                  />
-                ) : null}
-              </ul>
-            ) : (
-              <p className="question-panel__voice-status">Checking components…</p>
-            )}
-          </div>
-
-          <div className="question-panel">
-            <h2 className="question-panel__title">Voice</h2>
-            <label className="voice-toggle">
-              <input type="checkbox" checked={isVoiceEnabled} onChange={toggleVoice} />
-              <span>Enable voice activation (wake word &amp; speech-to-text)</span>
-            </label>
-            <p className="question-panel__voice-status">
-              {isVoiceEnabled
-                ? 'Wake word detection and speech-to-text are running.'
-                : 'Voice is off · openwakeword and STT are stopped.'}
-            </p>
-          </div>
-
-          <form className="question-panel" onSubmit={handleSettingsSubmit}>
-            <h2 className="question-panel__title">AI Settings</h2>
-            <div className="ai-settings__group">
-              <strong>General responses</strong>
-              <input
-                value={aiSettings.generalBaseUrl}
-                onChange={(event) =>
-                  setAiSettings({ ...aiSettings, generalBaseUrl: event.target.value })
-                }
-                placeholder="General base URL"
-                disabled={isSavingSettings}
-              />
-              <input
-                type="password"
-                value={aiSettings.generalApiKey}
-                onChange={(event) =>
-                  setAiSettings({ ...aiSettings, generalApiKey: event.target.value })
-                }
-                placeholder="General API key"
-                disabled={isSavingSettings}
-              />
-              <input
-                value={aiSettings.generalModelId}
-                onChange={(event) =>
-                  setAiSettings({ ...aiSettings, generalModelId: event.target.value })
-                }
-                placeholder="General model ID"
-                disabled={isSavingSettings}
-              />
-            </div>
-            <div className="question-panel__controls">
-              <button type="submit" disabled={isSavingSettings}>
-                Save
-              </button>
-            </div>
-          </form>
-
-          <form className="question-panel" onSubmit={handleSubmit}>
-            <h2 className="question-panel__title">Debug</h2>
-            <p className="question-panel__voice-status">{voiceStatus}</p>
-            <div className="region-control">
-              <button type="button" onClick={handleRegionControlClick} disabled={isSelecting}>
-                {isSelecting
-                  ? 'Selecting…'
-                  : region
-                    ? !isVoiceEnabled
-                      ? 'Reselect area'
-                      : isAutoListen
-                        ? 'Stop listening'
-                        : 'Start listening'
-                    : 'Select area to analyze'}
-              </button>
-              <span className="region-control__status">
-                {region
-                  ? isAutoListen
-                    ? `Area selected (${region.width}×${region.height} of 1000) · auto-listening`
-                    : `Area selected (${region.width}×${region.height} of 1000)`
-                  : 'Analyzing the full screen'}
-              </span>
-            </div>
-            <div className="question-panel__controls">
-              <input
-                id="screen-question"
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                placeholder="What is on my screen?"
-                disabled={isLoading}
-              />
-              <button type="submit" disabled={isLoading || !question.trim()}>
-                Ask
-              </button>
-            </div>
-            {result && <p className="question-panel__response">{result.text}</p>}
-            {voiceTranscript && (
-              <p className="question-panel__transcript">Heard: {voiceTranscript}</p>
-            )}
-          </form>
-          <form className="question-panel" onSubmit={handleTtsSubmit}>
-            <label htmlFor="tts-text">Test text-to-speech</label>
-            <div className="question-panel__controls">
-              <input
-                id="tts-text"
-                value={ttsText}
-                onChange={(event) => setTtsText(event.target.value)}
-                placeholder="Type text to speak..."
-                disabled={isTtsLoading}
-              />
-              <button type="submit" disabled={isTtsLoading || !ttsText.trim()}>
-                Speak
-              </button>
-            </div>
-          </form>
-          {error && <p className="question-panel__error">{error}</p>}
-          <div className="question-panel">
-            <h2 className="question-panel__title">Application</h2>
-            <div className="question-panel__controls">
-              <button
-                type="button"
-                className="question-panel__quit"
-                onClick={quitApp}
-                title="Close Bud"
-              >
-                Quit Bud
-              </button>
-            </div>
-          </div>
-        </div>
-        <button
-          type="button"
-          className="debug-panel__close"
-          onClick={closeDebugPanel}
-          aria-label="Close settings panel"
-          title="Close settings panel"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <line x1="6" y1="6" x2="18" y2="18" />
-            <line x1="18" y1="6" x2="6" y2="18" />
-          </svg>
-        </button>
-      </section>
+      <SettingsPanel
+        open={isDebugOpen}
+        onClose={closeDebugPanel}
+        vlStatus={vlStatus}
+        sttStatus={sttStatus}
+        ttsStatus={ttsStatus}
+        isVoiceEnabled={isVoiceEnabled}
+        onToggleVoice={toggleVoice}
+        voiceStatus={voiceStatus}
+        question={question}
+        onQuestionChange={setQuestion}
+        onAskSubmit={handleSubmit}
+        isLoading={isLoading}
+        result={result}
+        voiceTranscript={voiceTranscript}
+        region={region}
+        isAutoListen={isAutoListen}
+        isSelecting={isSelecting}
+        onRegionControlClick={handleRegionControlClick}
+        error={error}
+        onError={setError}
+        onQuit={quitApp}
+      />
       {result?.boxes.map((box, index) => (
         <Indicator
           key={`${box.bbox.join('-')}-${index}`}
