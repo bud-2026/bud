@@ -53,20 +53,32 @@ _Or animated preview:_
 
 ### ❌ The Problem
 
-Describe the real-world problem you are addressing in 2–3 sentences. Who experiences this problem and why is current solutions insufficient?
+People work across dozens of windows, tabs, and documents, yet the information they need is usually *on the screen in front of them*. Getting help with it still means stopping what they are doing: switching to another app, describing what they see out loud, or copying text by hand. General voice assistants can answer trivia but are **blind to the screen**, and screenshot-to-cloud tools trade away **privacy and latency**. This excludes exactly the users who need help most — people working hands-free, on a call, away from the keyboard, or relying on assistive technology.
 
 ### ✨ Our Solution
 
-Explain how your project solves this problem. Highlight the key innovation or unique angle your team took during the hackathon.
+**Bud** is a voice-first assistant that lives as a translucent overlay on top of the desktop and *sees what you see*. Say **"Hey Bud"**, ask a question naturally, and Bud answers out loud and draws a box around the exact element it is describing.
+
+The key innovation is that Bud is **local-first and smart about where work happens**:
+
+- **Screen understanding and question classification run entirely on-device** on a bundled **Qwen3-VL-4B** vision-language model served by **llama.cpp on the GPU** — your screen never has to leave your machine for visual tasks.
+- **Only general-knowledge questions are routed to the cloud** (a configurable Nebius model), so the common case stays fast and private.
+- A lightweight **classifier decides between the two paths automatically** and defaults to screen context whenever the question is ambiguous.
+- Everything is **provisioned on first run** — runtime, model weights, and speech models are downloaded automatically and started on free local ports, so there is no manual model setup.
 
 ---
 
 ## 🔥 Key Features
 
-- ⚡ **Feature 1:** Short explanation of feature and its benefit.
-- 🤖 **AI-Powered Core:** How machine learning / AI model enhances user experience.
-- 📊 **Real-time Analytics:** Instant feed processing and state updates.
-- 🎨 **Intuitive UI/UX:** Clean design built for friction-free onboarding.
+- 🎙️ **Wake-word voice control:** Hands-free "Hey Bud" activation with confirmation-buffered detection, plus natural stop phrases ("stop", "thanks", "that's all", "goodbye") to end a conversation.
+- 👁️ **On-device screen vision:** A bundled Qwen3-VL-4B model (GGUF, CUDA) reads the screen and grounds answers with bounding boxes — no screenshots sent to the cloud.
+- 🧠 **Smart router (screen vs. general):** A local classifier sends visual and system-state questions to the vision model and pure trivia to the Nebius cloud model.
+- 🎯 **Visual grounding & copy:** Highlighted indicators point at the elements Bud mentions; when you ask it to read or extract text, a one-click **Copy** button puts the exact raw text on your clipboard.
+- 🖱️ **Focus on a region:** Drag a box to confine Bud to part of the screen, then auto-listen in that area. Clear it with Esc or the × control.
+- 🗣️ **Low-latency streaming speech:** Pocket-TTS streams raw PCM chunks over HTTP and the renderer schedules them through Web Audio for smooth, gapless playback, with phonetic rules that keep numbers, dates, and units sounding natural.
+- 🫧 **Ambient, non-intrusive overlay:** A transparent, click-through, always-on-top window that becomes interactive only under the cursor, with a toolbar that docks to any edge and hides itself when idle.
+- 🧭 **Guided first-run experience:** A step-by-step spotlight tour, a readiness dashboard that gates features until components are ready, and a settings panel (Status, Voice, AI, Debug, Application).
+- 📦 **Zero-config provisioning:** The llama.cpp runtime, the GGUF model + vision projector, and the speech models are downloaded and started automatically on free local ports, with live progress in **Settings → Status**.
 
 ---
 
@@ -74,33 +86,130 @@ Explain how your project solves this problem. Highlight the key innovation or un
 
 ### Technologies Used
 
-- **Frontend:** React / Next.js, Tailwind CSS
-- **Backend:** Node.js / FastAPI
-- **Database & Storage:** Supabase / MongoDB
-- **AI / ML Models:** OpenAI API / Anthropic / PyTorch
-- **Hosting / Infra:** Vercel / Docker
+- **Desktop & Frontend:** Electron 39, React 19, TypeScript, electron-vite, hand-written CSS (glassmorphic overlay), Web Audio API
+- **Orchestration / Backend:** Node.js in the Electron main process, typed IPC over a `contextBridge` preload
+- **Screen vision (local):** llama.cpp `llama-server` (CUDA 12.4 build) serving **Qwen3-VL-4B-Instruct** GGUF (`Q4_K_M`) with a `Q8_0` mmproj vision projector
+- **Wake word & Speech-to-Text (local):** Python — `openwakeword` (custom `hey bud` model), Moonshine small streaming recognizer, `pvrecorder`
+- **Text-to-Speech (local):** Python — Pocket-TTS behind a FastAPI/uvicorn server with a chunked `/tts-stream` PCM endpoint
+- **General-knowledge LLM:** Nebius AI Studio / Token Factory (OpenAI-compatible API), configurable base URL, key, and model
+- **AI client:** OpenAI Node SDK, pointed at either the local server or Nebius
+- **Packaging:** electron-builder + PyInstaller, staged into `build/python` and `build/vl`
+- **Target platform:** Windows x64 with an NVIDIA CUDA GPU (single-GPU, fully local inference)
+
+### How It Works
+
+```
+🎙️  "Hey Bud, what does this error mean?"
+        │  wake word + speech-to-text (openwakeword + Moonshine, local)
+        ▼
+🧠  Classifier (Qwen3-VL, local) ── screen? ──┐
+        │ general                            │ yes
+        ▼                                    ▼
+☁️  Nebius API (general answers)     🖥️  desktopCapturer + Qwen3-VL (local)
+        │                                    │  text + [xmin,ymin,xmax,ymax] boxes
+        └──────────────┬─────────────────────┘
+                       ▼
+        🔊  Pocket-TTS streams PCM → Web Audio (spoken answer)
+        🎯  Overlay draws bounding boxes + copy buttons
+```
+
+All capture and inference for screen questions stay on the machine; only general-knowledge prompts reach the network. The always-on-top overlay sets content protection so Bud is excluded from its own screen captures.
+
+### Project Structure
+
+```
+bud/
+├── src/
+│   ├── main/            # Electron main: window, IPC, capture, AI routing, backends
+│   │   ├── index.ts     # App lifecycle, STT/TTS process control, prompts, IPC
+│   │   ├── localVlm.ts  # Provision + launch the bundled llama.cpp Qwen3-VL server
+│   │   └── freePort.ts  # Picks a free local port per backend
+│   ├── preload/         # contextBridge API surface (window.api)
+│   └── renderer/        # React overlay UI (toolbar, orb, indicators, settings, guide)
+├── backend/
+│   ├── stt/             # Python wake word + speech-to-text worker (JSON event stream)
+│   └── tts/             # Python Pocket-TTS FastAPI server (streaming PCM)
+└── scripts/             # PowerShell: prepare-backends, prepare-vl, validate-backends
+```
 
 ---
 
 ## 🏃 Quick Start (Run Locally in 2 Minutes)
 
-Follow these simple steps to run the project locally for testing during evaluation.
+Follow these simple steps to run the project locally for testing during evaluation. The first launch downloads the vision model and runtime automatically, so let it finish — progress is always visible in **Settings → Status**.
 
 ### 1. Prerequisites
 
-- **Node.js**: `>= 18.0.0`
-- **Package Manager**: `npm` or `pnpm`
+- **OS:** Windows 10/11 x64 (the bundled llama.cpp runtime and preparation scripts target Windows)
+- **Node.js:** `>= 18.0.0` (Node 22 recommended)
+- **Package Manager:** `pnpm` (lockfile included) or `npm`
+- **Python:** 3.12, available as `py -3.12` (only needed to prepare the speech backends)
+- **GPU:** NVIDIA GPU with a recent CUDA 12.x driver (for local Qwen3-VL inference)
+- **Disk:** ~10 GB free for the runtime, models, and Python bundles, plus enough free VRAM for a 4B model
 
 ### 2. Setup & Installation
 
 ```bash
 # Clone the repository
-git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
+git clone https://github.com/your-username/your-repo-name.git
 cd your-repo-name
 
 # Install dependencies
-npm install
+pnpm install
+# (or: npm install)
 
 # Configure environment variables
-cp .env.example .env.local
+cp .env.example .env
 ```
+
+Edit `.env` and set the general-knowledge model credentials (only required for general questions):
+
+```env
+GENERAL_BASE_URL=https://api.tokenfactory.nebius.com/v1/
+GENERAL_API_KEY=your_general_api_key
+GENERAL_MODEL_ID=your_general_model_id
+```
+
+> Screen analysis and question classification always run on the bundled local Qwen3-VL server — no key is needed for those.
+
+### 3. Prepare the Backends (Windows, one time)
+
+This creates the Python virtual environments, installs dependencies, pre-caches the speech models, builds the PyInstaller bundles into `build/python`, and downloads the llama.cpp CUDA runtime into `build/vl`.
+
+```bash
+pnpm run prepare:backends
+pnpm run validate:backends
+```
+
+### 4. Run the App
+
+```bash
+pnpm run dev
+```
+
+Bud shows a splash while it starts the speech backends and the local vision server. The Qwen3-VL model weights are downloaded to your user-data folder on first use (watch **Settings → Status**). Once the Status panel reads "Bud is ready", say **"Hey Bud"** — or hover the edge of the screen to reveal the toolbar.
+
+### 5. Build a Desktop Installer
+
+```bash
+pnpm run build:win     # Windows NSIS installer
+pnpm run build:unpack  # unpacked build for quick testing
+```
+
+### Configuration Reference
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `GENERAL_BASE_URL` | OpenAI-compatible base URL for general knowledge | `https://api.tokenfactory.nebius.com/v1/` |
+| `GENERAL_API_KEY` | API key for the general model | — |
+| `GENERAL_MODEL_ID` | Model ID used for general answers | — |
+
+General settings can also be changed at runtime under **Settings → AI**, which persists them to `ai-settings.json` in the app's user-data folder.
+
+### Using Bud
+
+- **Voice:** Say **"Hey Bud"**, then ask your question. End a conversation with a stop phrase ("stop", "thanks", "that's all", "goodbye") or press Esc.
+- **Toolbar:** Move the cursor toward the screen edge to reveal it; drag the grip dots to re-dock it to any edge.
+- **Select an area:** Click the select button, drag a box, and Bud focuses (and auto-listens) there. Clear it with Esc or the × button.
+- **Type instead:** Use the ask button in the toolbar, or the question field under **Settings → Debug**.
+- **Shortcut:** `Ctrl+Shift+Space` toggles the settings panel.
