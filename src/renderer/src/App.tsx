@@ -4,6 +4,7 @@ import Indicator from './components/Indicator'
 import RegionSelector from './components/RegionSelector'
 import Toolbar, { type ToolbarEdge } from './components/Toolbar'
 import VoiceOrb from './components/VoiceOrb'
+import WelcomeGuide from './components/WelcomeGuide'
 import SettingsPanel from './components/settings/SettingsPanel'
 import { askQuestion } from './lib/ai'
 import { computeReadiness } from './lib/readiness'
@@ -72,6 +73,7 @@ function App(): React.JSX.Element {
   const [askValue, setAskValue] = useState('')
   const [toolbar, setToolbar] = useState<ToolbarState>(readStoredToolbarState)
   const [isToolbarVisible, setIsToolbarVisible] = useState(false)
+  const [isGuideOpen, setIsGuideOpen] = useState(false)
   const voiceOrbStateRef = useRef(voiceOrbState)
   const regionRef = useRef<Region | null>(null)
   const autoListenRef = useRef(false)
@@ -233,6 +235,24 @@ function App(): React.JSX.Element {
     window.api.overlay.setDebugVisible(false)
   }, [])
 
+  const setDebugPanelVisible = useCallback((visible: boolean): void => {
+    window.api.overlay.setDebugVisible(visible)
+  }, [])
+
+  const openGuide = useCallback((): void => {
+    setIsGuideOpen(true)
+  }, [])
+
+  // Finishing or skipping both mark the guide as seen so it only auto-opens on
+  // the very first launch. The settings panel's "?" button can still bring it
+  // back at any time.
+  const closeGuide = useCallback((): void => {
+    setIsGuideOpen(false)
+    void window.api.guide.setSeen(true).catch(() => {
+      // Persisting the flag is not critical to closing the guide.
+    })
+  }, [])
+
   const quitApp = useCallback((): void => {
     void window.api.app.quit()
   }, [])
@@ -308,6 +328,22 @@ function App(): React.JSX.Element {
   useEffect(() => {
     toolbarElementRef.current = document.querySelector('.toolbar')
   }, [])
+  // Open the getting-started guide automatically the first time Bud runs. The
+  // boolean lives in the settings file and is set once the guide is dismissed.
+  useEffect(() => {
+    let disposed = false
+    void window.api.guide
+      .getSeen()
+      .then((seen) => {
+        if (!disposed && !seen) setIsGuideOpen(true)
+      })
+      .catch(() => {
+        // The guide is optional; ignore read failures.
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   const isPointerNearToolbar = useCallback((x: number, y: number): boolean => {
     const element = toolbarElementRef.current
@@ -343,7 +379,7 @@ function App(): React.JSX.Element {
       Boolean(
         target instanceof Element &&
         target.closest(
-          '.toolbar, .indicator__copy-btn, .ask-bar, .debug-panel--open, .region-clear'
+          '.toolbar, .indicator__copy-btn, .ask-bar, .debug-panel--open, .region-clear, .welcome-guide'
         )
       )
     if (next === interactiveRef.current) return
@@ -387,9 +423,19 @@ function App(): React.JSX.Element {
   // gets revealed, the panel opens/closes, the ask bar opens), in which case no
   // mousemove fires. Re-evaluate interactivity from the last known pointer.
   useEffect(() => {
+    // The guide covers the whole screen and must be clickable even before the
+    // pointer has moved (it auto-opens on first launch), so force interactivity
+    // while it is open instead of relying on hover tracking.
+    if (isGuideOpen) {
+      if (!interactiveRef.current) {
+        interactiveRef.current = true
+        window.api.overlay.setInteractive(true)
+      }
+      return
+    }
     const { x, y } = pointerRef.current
     setOverlayInteractive(document.elementFromPoint(x, y))
-  }, [isDebugOpen, isAskOpen, isToolbarVisible, isSelecting, setOverlayInteractive])
+  }, [isDebugOpen, isAskOpen, isToolbarVisible, isSelecting, isGuideOpen, setOverlayInteractive])
   useEffect(() => {
     let disposed = false
     void window.api.voice
@@ -719,7 +765,7 @@ function App(): React.JSX.Element {
       <Toolbar
         edge={toolbar.edge}
         position={toolbar.position}
-        visible={isToolbarVisible}
+        visible={isToolbarVisible || isGuideOpen}
         isPanelOpen={isDebugOpen}
         isSelecting={isSelecting}
         hasRegion={region !== null}
@@ -766,6 +812,7 @@ function App(): React.JSX.Element {
         error={error}
         onError={setError}
         onQuit={quitApp}
+        onOpenGuide={openGuide}
       />
       {result?.boxes.map((box, index) => (
         <Indicator
@@ -778,6 +825,7 @@ function App(): React.JSX.Element {
       {isSelecting && (
         <RegionSelector onComplete={finishRegionSelection} onCancel={cancelRegionSelection} />
       )}
+      {isGuideOpen && <WelcomeGuide onClose={closeGuide} onRequestPanel={setDebugPanelVisible} />}
     </main>
   )
 }

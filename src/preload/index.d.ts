@@ -126,6 +126,10 @@ declare global {
       getAI: () => Promise<AISettings>
       saveAI: (settings: AISettings) => Promise<AISettings>
     }
+    guide: {
+      getSeen: () => Promise<boolean>
+      setSeen: (seen: boolean) => Promise<boolean>
+    }
     vl: {
       getStatus: () => Promise<VlStatusSnapshot>
       onStatus: (callback: (status: VlStatusSnapshot) => void) => () => void

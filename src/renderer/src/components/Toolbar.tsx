@@ -135,6 +135,7 @@ function Toolbar({
       <button
         type="button"
         className="toolbar__grip"
+        data-tour="grip"
         onMouseDown={handleGripDown}
         aria-label="Move toolbar along the screen edges"
         title="Drag to move along the edges"
@@ -149,6 +150,7 @@ function Toolbar({
         <button
           type="button"
           className={`toolbar__btn${isPanelOpen ? ' toolbar__btn--active' : ''}`}
+          data-tour="settings"
           onClick={onTogglePanel}
           aria-label="Open settings panel"
           aria-pressed={isPanelOpen}
@@ -173,6 +175,7 @@ function Toolbar({
         <button
           type="button"
           className={`toolbar__btn${isSelecting ? ' toolbar__btn--active' : ''}`}
+          data-tour="select"
           onClick={onSelectArea}
           disabled={!ready}
           aria-label="Select area to analyze"
@@ -201,6 +204,7 @@ function Toolbar({
           className={`toolbar__btn${
             isVoiceEnabled ? ' toolbar__btn--active' : ' toolbar__btn--muted'
           }`}
+          data-tour="voice"
           onClick={onToggleVoice}
           disabled={!canToggleVoice}
           aria-label={isVoiceEnabled ? 'Turn off voice activation' : 'Turn on voice activation'}
@@ -234,6 +238,7 @@ function Toolbar({
         <button
           type="button"
           className={`toolbar__btn${isAsking ? ' toolbar__btn--active' : ''}`}
+          data-tour="ask"
           onClick={onOpenAsk}
           disabled={!ready}
           aria-label="Type a question"

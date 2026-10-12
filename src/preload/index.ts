@@ -197,6 +197,10 @@ const api = {
     saveAI: (settings: AISettings): Promise<AISettings> =>
       ipcRenderer.invoke('settings:save-ai', settings)
   },
+  guide: {
+    getSeen: (): Promise<boolean> => ipcRenderer.invoke('guide:get-seen'),
+    setSeen: (seen: boolean): Promise<boolean> => ipcRenderer.invoke('guide:set-seen', seen)
+  },
   app: {
     quit: (): Promise<void> => ipcRenderer.invoke('app:quit')
   }

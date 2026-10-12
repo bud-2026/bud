@@ -184,6 +184,22 @@ function saveVoiceEnabled(enabled: boolean): void {
   )
 }
 
+// The getting-started guide opens automatically once. Once the user finishes or
+// skips it we remember that so it never auto-opens again; the settings panel's
+// "?" button can always bring it back.
+function getGuideSeen(): boolean {
+  const stored = readStoredSettings()
+  return typeof stored.hasSeenGuide === 'boolean' ? stored.hasSeenGuide : false
+}
+
+function saveGuideSeen(seen: boolean): void {
+  writeFileSync(
+    getAISettingsPath(),
+    `${JSON.stringify({ ...readStoredSettings(), hasSeenGuide: seen }, null, 2)}\n`,
+    'utf8'
+  )
+}
+
 // Drops settings that are no longer user-configurable now that screen analysis
 // and classification always use the bundled Qwen3-VL server.
 function migrateLegacyAISettings(): void {
@@ -1549,6 +1565,17 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('settings:get-ai', () => getAISettings())
+
+  ipcMain.handle('guide:get-seen', () => getGuideSeen())
+
+  ipcMain.handle('guide:set-seen', (_event, seen: unknown) => {
+    if (typeof seen !== 'boolean') {
+      throw new Error('Guide seen flag must be a boolean')
+    }
+
+    saveGuideSeen(seen)
+    return seen
+  })
 
   ipcMain.handle('vl:get-status', () => getVlStatus())
 
