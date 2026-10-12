@@ -91,7 +91,7 @@ const STEPS: GuideStep[] = [
   },
   {
     id: 'done',
-    title: 'You are all set',
+    title: 'You are all set!',
     body: 'Hover the edge of your screen to reveal the toolbar, then click the gear any time for settings. Reopen this guide with the “?” button in Settings.',
     target: null,
     placement: 'auto',
@@ -262,13 +262,22 @@ function WelcomeGuide({ onClose, onRequestPanel }: WelcomeGuideProps): React.JSX
     }
   })()
 
+  // Clamp the spotlight to the viewport: the settings panel sits flush against
+  // the screen edges, so padding it outward would push the border off-screen.
   const spotlightStyle: React.CSSProperties | null = activeRect
-    ? {
-        left: activeRect.left - SPOTLIGHT_PADDING,
-        top: activeRect.top - SPOTLIGHT_PADDING,
-        width: activeRect.width + SPOTLIGHT_PADDING * 2,
-        height: activeRect.height + SPOTLIGHT_PADDING * 2
-      }
+    ? (() => {
+        const left = Math.max(0, activeRect.left - SPOTLIGHT_PADDING)
+        const top = Math.max(0, activeRect.top - SPOTLIGHT_PADDING)
+        const right = Math.min(
+          viewportWidth,
+          activeRect.left + activeRect.width + SPOTLIGHT_PADDING
+        )
+        const bottom = Math.min(
+          viewportHeight,
+          activeRect.top + activeRect.height + SPOTLIGHT_PADDING
+        )
+        return { left, top, width: right - left, height: bottom - top }
+      })()
     : null
 
   return (
