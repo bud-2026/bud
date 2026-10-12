@@ -51,7 +51,20 @@ function formatMegabytes(bytes: number): string {
   return `${Math.floor(bytes / 1e6)} MB`
 }
 
-function describeVlStatus(status: VlComponentStatus): string {
+// Shared status shape for every bundled component (vision, speech, TTS). The
+// vision server reports byte progress and a `downloaded` phase; the speech
+// backends additionally use `loading` and `off`.
+type ComponentPhase = VlPhase | BackendPhase
+
+interface ComponentStatus {
+  phase: ComponentPhase
+  received?: number
+  total?: number
+  detail?: string
+  message?: string
+}
+
+function describeStatus(status: ComponentStatus): string {
   switch (status.phase) {
     case 'pending':
       return 'Waiting…'
@@ -64,6 +77,8 @@ function describeVlStatus(status: VlComponentStatus): string {
       }
       return 'Downloading…'
     }
+    case 'loading':
+      return 'Loading…'
     case 'downloaded':
       return 'Downloaded'
     case 'starting':
@@ -72,16 +87,18 @@ function describeVlStatus(status: VlComponentStatus): string {
       return 'Ready'
     case 'error':
       return 'Failed'
+    case 'off':
+      return 'Off'
   }
 }
 
-interface VlStatusRowProps {
+interface ModelStatusRowProps {
   label: string
   version: string
-  status: VlComponentStatus
+  status: ComponentStatus
 }
 
-function VlStatusRow({ label, version, status }: VlStatusRowProps): React.JSX.Element {
+function ModelStatusRow({ label, version, status }: ModelStatusRowProps): React.JSX.Element {
   const isDownloading = status.phase === 'downloading'
   const percent =
     isDownloading && status.total
@@ -93,7 +110,7 @@ function VlStatusRow({ label, version, status }: VlStatusRowProps): React.JSX.El
       <div className="model-status__head">
         <span className="model-status__label">{label}</span>
         <span className={`model-status__state model-status__state--${status.phase}`}>
-          {describeVlStatus(status)}
+          {describeStatus(status)}
         </span>
       </div>
       <span className="model-status__version">{version}</span>
@@ -131,6 +148,8 @@ function App(): React.JSX.Element {
   const [isDebugOpen, setIsDebugOpen] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState('Starting voice listener...')
   const [vlStatus, setVlStatus] = useState<VlStatusSnapshot | null>(null)
+  const [sttStatus, setSttStatus] = useState<SttStatusSnapshot | null>(null)
+  const [ttsStatus, setTtsStatus] = useState<BackendComponentStatus | null>(null)
   const [voiceTranscript, setVoiceTranscript] = useState('')
   const [voiceOrbState, setVoiceOrbState] = useState<
     'hidden' | 'listening' | 'analyzing' | 'responding'
@@ -489,6 +508,38 @@ function App(): React.JSX.Element {
       unsubscribe()
     }
   }, [])
+  useEffect(() => {
+    let disposed = false
+    void window.api.stt
+      .getStatus()
+      .then((status) => {
+        if (!disposed) setSttStatus(status)
+      })
+      .catch(() => {
+        // Status is informational; live updates arrive through onStatus below.
+      })
+    const unsubscribe = window.api.stt.onStatus((status) => setSttStatus(status))
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
+  }, [])
+  useEffect(() => {
+    let disposed = false
+    void window.api.tts
+      .getStatus()
+      .then((status) => {
+        if (!disposed) setTtsStatus(status)
+      })
+      .catch(() => {
+        // Status is informational; live updates arrive through onStatus below.
+      })
+    const unsubscribe = window.api.tts.onStatus((status) => setTtsStatus(status))
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
+  }, [])
   useEffect(
     () =>
       window.api.voice.onEvent((event) => {
@@ -792,31 +843,56 @@ function App(): React.JSX.Element {
           <div className="question-panel">
             <label className='keybind-label' htmlFor="screen-question">Ctrl+Shift+Space to toggle panel</label>
             <h2 className="question-panel__title">Installations</h2>
-            {vlStatus ? (
+            {vlStatus || sttStatus || ttsStatus ? (
               <ul className="model-status">
-                <VlStatusRow
-                  label="llama.cpp runtime"
-                  version={`build ${vlStatus.llamaVersion} · ${vlStatus.llamaBackend}`}
-                  status={vlStatus.runtime}
-                />
-                <VlStatusRow
-                  label="Vision model"
-                  version={`${vlStatus.modelAlias} · ${vlStatus.modelQuant}`}
-                  status={vlStatus.model}
-                />
-                <VlStatusRow
-                  label="Vision projector"
-                  version={`mmproj · ${vlStatus.mmprojQuant}`}
-                  status={vlStatus.mmproj}
-                />
-                <VlStatusRow
-                  label="Inference server"
-                  version={vlStatus.port ? `127.0.0.1:${vlStatus.port}` : 'Not running'}
-                  status={vlStatus.server}
-                />
+                {vlStatus ? (
+                  <>
+                    <ModelStatusRow
+                      label="llama.cpp runtime"
+                      version={`build ${vlStatus.llamaVersion} · ${vlStatus.llamaBackend}`}
+                      status={vlStatus.runtime}
+                    />
+                    <ModelStatusRow
+                      label="Vision model"
+                      version={`${vlStatus.modelAlias} · ${vlStatus.modelQuant}`}
+                      status={vlStatus.model}
+                    />
+                    <ModelStatusRow
+                      label="Vision projector"
+                      version={`mmproj · ${vlStatus.mmprojQuant}`}
+                      status={vlStatus.mmproj}
+                    />
+                    <ModelStatusRow
+                      label="Inference server"
+                      version={vlStatus.port ? `127.0.0.1:${vlStatus.port}` : 'Not running'}
+                      status={vlStatus.server}
+                    />
+                  </>
+                ) : null}
+                {sttStatus ? (
+                  <>
+                    <ModelStatusRow
+                      label="Wake word"
+                      version="openwakeword · hey bud"
+                      status={sttStatus.wakeWord}
+                    />
+                    <ModelStatusRow
+                      label="Speech-to-text"
+                      version="Moonshine small streaming · en"
+                      status={sttStatus.transcription}
+                    />
+                  </>
+                ) : null}
+                {ttsStatus ? (
+                  <ModelStatusRow
+                    label="Text-to-speech"
+                    version="Pocket-TTS · voice jane"
+                    status={ttsStatus}
+                  />
+                ) : null}
               </ul>
             ) : (
-              <p className="question-panel__voice-status">Checking local model…</p>
+              <p className="question-panel__voice-status">Checking components…</p>
             )}
           </div>
 

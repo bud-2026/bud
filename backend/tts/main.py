@@ -19,17 +19,17 @@ DEFAULT_VOICE = "jane"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model, VOICE_STATES
-    print("Loading Pocket-TTS model...")
+    print("Loading Pocket-TTS model...", flush=True)
     model = TTSModel.load_model()
 
-    print("Pre-caching voice states...")
+    print("Pre-caching voice states...", flush=True)
     for voice_name in [DEFAULT_VOICE, "alba"]:
         try:
             VOICE_STATES[voice_name] = model.get_state_for_audio_prompt(voice_name)
         except Exception as e:
-            print(f"Could not pre-cache voice {voice_name}: {e}")
+            print(f"Could not pre-cache voice {voice_name}: {e}", flush=True)
 
-    print("Server ready!")
+    print("Server ready!", flush=True)
     yield
     VOICE_STATES.clear()
 
@@ -37,6 +37,14 @@ app = FastAPI(
     title="Pocket-TTS API",
     lifespan=lifespan
 )
+
+
+@app.get("/health")
+def health():
+    # Uvicorn only serves requests once the lifespan startup (model load)
+    # completes, so a responding /health implies the model is ready.
+    return {"ok": model is not None}
+
 
 class TTSRequest(BaseModel):
     text: str

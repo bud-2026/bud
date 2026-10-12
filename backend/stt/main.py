@@ -84,6 +84,7 @@ def resolve_wake_word_model() -> tuple[Path, str]:
     if not fallback_file.exists():
         emit(
             "status",
+            phase="downloading",
             message=f"Downloading local fallback wake word model '{fallback_name}'..."
         )
         download_models([fallback_name])
@@ -91,6 +92,20 @@ def resolve_wake_word_model() -> tuple[Path, str]:
         raise FileNotFoundError(f"Fallback wake-word model was not installed: {fallback_file}")
 
     return fallback_file, fallback_name.replace("_", " ")
+
+
+def warm_up_transcriber(MicTranscriber: Any, ModelArch: Any, language: str) -> None:
+    """Pre-loads the transcription model so speech-to-text is ready before the
+    first wake word and its download/load state is visible to the UI."""
+    emit("status", phase="loading", message="Loading speech-to-text model...")
+    transcriber = MicTranscriber().language(language).model_arch(ModelArch.SMALL_STREAMING)
+    try:
+        transcriber.load()
+    finally:
+        try:
+            transcriber.close()
+        except Exception:
+            pass
 
 
 def run() -> None:
@@ -131,6 +146,18 @@ def run() -> None:
             frame_length=1280,
         )
         emit("ready", wake_word=wake_word_name)
+
+        # Pre-load the transcription model so speech-to-text is ready before the
+        # first wake word; a failure is reported but does not stop wake listening.
+        try:
+            warm_up_transcriber(MicTranscriber, ModelArch, language)
+            emit("status", phase="ready", message="Speech-to-text model ready")
+        except Exception as error:
+            emit(
+                "status",
+                phase="error",
+                message=f"Speech-to-text model failed to load: {error}",
+            )
 
         while True:
             started_by_wake = False
@@ -205,6 +232,7 @@ def run() -> None:
                     .on_text(on_text)
                     .on_line(on_line)
                 )
+                emit("status", phase="loading", message="Loading speech-to-text model...")
                 transcriber.load()
                 transcriber.start()
                 emit("transcribing")

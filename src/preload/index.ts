@@ -79,6 +79,19 @@ interface VlStatusSnapshot {
   port?: number
 }
 
+type BackendPhase = 'pending' | 'downloading' | 'loading' | 'starting' | 'ready' | 'error' | 'off'
+
+interface BackendComponentStatus {
+  phase: BackendPhase
+  detail?: string
+  message?: string
+}
+
+interface SttStatusSnapshot {
+  wakeWord: BackendComponentStatus
+  transcription: BackendComponentStatus
+}
+
 // Custom APIs for renderer
 const api = {
   ai: {
@@ -139,6 +152,13 @@ const api = {
         callback(data.message)
       ipcRenderer.on('tts:error', listener)
       return () => ipcRenderer.removeListener('tts:error', listener)
+    },
+    getStatus: (): Promise<BackendComponentStatus> => ipcRenderer.invoke('tts:get-status'),
+    onStatus: (callback: (status: BackendComponentStatus) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: BackendComponentStatus): void =>
+        callback(data)
+      ipcRenderer.on('tts:status', listener)
+      return () => ipcRenderer.removeListener('tts:status', listener)
     }
   },
   voice: {
@@ -161,6 +181,15 @@ const api = {
         callback(data)
       ipcRenderer.on('vl:status', listener)
       return () => ipcRenderer.removeListener('vl:status', listener)
+    }
+  },
+  stt: {
+    getStatus: (): Promise<SttStatusSnapshot> => ipcRenderer.invoke('stt:get-status'),
+    onStatus: (callback: (status: SttStatusSnapshot) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: SttStatusSnapshot): void =>
+        callback(data)
+      ipcRenderer.on('stt:status', listener)
+      return () => ipcRenderer.removeListener('stt:status', listener)
     }
   },
   settings: {

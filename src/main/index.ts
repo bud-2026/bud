@@ -34,9 +34,89 @@ const LOCAL_VLM_API_KEY = 'local'
 let ttsBaseUrl: string | undefined
 const screenCaptureMaxDimension = 1920
 const packagedBackendDirectory = join(process.resourcesPath, 'python')
+const TTS_HEALTH_TIMEOUT_MS = 120_000
 let ttsProcess: ChildProcess | undefined
 let voiceProcess: ChildProcess | undefined
 let mainWindowRef: BrowserWindow | undefined
+let isStoppingTts = false
+let isStoppingVoice = false
+
+// Dashboard-facing provisioning state for the speech backends. Mirrors the
+// phase model used by the bundled vision server so the settings panel can
+// render every component the same way.
+type BackendPhase = 'pending' | 'downloading' | 'loading' | 'starting' | 'ready' | 'error' | 'off'
+
+interface BackendComponentStatus {
+  phase: BackendPhase
+  /** What is currently happening, e.g. the file being downloaded or loaded. */
+  detail?: string
+  /** Human readable failure reason when phase is 'error'. */
+  message?: string
+}
+
+interface SttStatusSnapshot {
+  /** openwakeword wake word detector. */
+  wakeWord: BackendComponentStatus
+  /** Moonshine speech recognizer (loads on first use). */
+  transcription: BackendComponentStatus
+}
+
+interface VoiceBackendEvent {
+  event: string
+  text?: string
+  final?: boolean
+  end_session?: boolean
+  message?: string
+  wake_word?: string
+  auto?: boolean
+  phase?: string
+}
+
+const VOICE_OFF_STATUS: BackendComponentStatus = { phase: 'off', detail: 'Voice is off' }
+
+let sttStatus: SttStatusSnapshot = {
+  wakeWord: { ...VOICE_OFF_STATUS },
+  transcription: { ...VOICE_OFF_STATUS }
+}
+let ttsStatus: BackendComponentStatus = { phase: 'pending' }
+
+function broadcast(channel: string, status: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(channel, status)
+  }
+}
+
+function setSttStatus(status: SttStatusSnapshot): void {
+  sttStatus = status
+  broadcast('stt:status', status)
+}
+
+function setTtsStatus(status: BackendComponentStatus): void {
+  ttsStatus = status
+  broadcast('tts:status', status)
+}
+
+function markSttOff(): void {
+  setSttStatus({ wakeWord: { ...VOICE_OFF_STATUS }, transcription: { ...VOICE_OFF_STATUS } })
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+// Splits a child process stream into trimmed, non-empty lines.
+function readLines(stream: NodeJS.ReadableStream | null, onLine: (line: string) => void): void {
+  if (!stream) return
+  let pending = ''
+  stream.on('data', (chunk: Buffer) => {
+    pending += chunk.toString()
+    const lines = pending.split(/\r?\n/)
+    pending = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.trim()) onLine(line)
+    }
+  })
+}
 
 function getAISettingsPath(): string {
   return join(app.getPath('userData'), 'ai-settings.json')
@@ -148,13 +228,16 @@ async function startTTSBackend(): Promise<void> {
 
   if (!existsSync(pythonExecutable) || (!isPackaged && !existsSync(backendScript))) {
     console.error(`TTS backend is not prepared: ${pythonExecutable}`)
+    setTtsStatus({ phase: 'error', message: 'The text-to-speech backend is not installed.' })
     return
   }
 
   const port = await findFreePort()
   ttsBaseUrl = `http://127.0.0.1:${port}`
+  isStoppingTts = false
+  setTtsStatus({ phase: 'starting', detail: `127.0.0.1:${port}` })
 
-  ttsProcess = spawn(
+  const child = spawn(
     pythonExecutable,
     isPackaged ? ['--port', String(port)] : [backendScript, '--port', String(port)],
     {
@@ -163,19 +246,75 @@ async function startTTSBackend(): Promise<void> {
         ...process.env,
         ...(isPackaged ? { HF_HOME: join(packagedBackendDirectory, 'model-cache') } : {})
       },
-      stdio: 'inherit',
+      stdio: ['ignore', 'pipe', 'inherit'],
       windowsHide: true
     }
   )
-  ttsProcess.on('error', (error) => console.error('TTS backend failed to start:', error))
-  ttsProcess.on('exit', (code, signal) => {
-    console.log(`TTS backend exited (code=${code}, signal=${signal ?? 'none'})`)
-    ttsProcess = undefined
-    ttsBaseUrl = undefined
+  ttsProcess = child
+
+  // Pocket-TTS reports progress on stdout while it loads and caches its model;
+  // stderr is inherited so uvicorn's logs stay visible in the terminal.
+  const onLine = (line: string): void => {
+    if (line.includes('Loading Pocket-TTS model') || line.includes('Pre-caching voice states')) {
+      setTtsStatus({ phase: 'downloading', detail: line.trim() })
+    } else if (line.includes('Server ready')) {
+      setTtsStatus({ phase: 'ready', detail: `127.0.0.1:${port}` })
+    }
+  }
+  readLines(child.stdout, onLine)
+
+  child.on('error', (error) => {
+    console.error('TTS backend failed to start:', error)
+    setTtsStatus({ phase: 'error', message: error.message })
   })
+  child.on('exit', (code, signal) => {
+    console.log(`TTS backend exited (code=${code}, signal=${signal ?? 'none'})`)
+    if (ttsProcess === child) {
+      ttsProcess = undefined
+      ttsBaseUrl = undefined
+    }
+    if (!isStoppingTts) {
+      setTtsStatus({
+        phase: 'error',
+        message: `The text-to-speech backend stopped (code=${code ?? 'unknown'}).`
+      })
+    }
+  })
+
+  try {
+    await waitForTtsReady(child, port)
+    setTtsStatus({ phase: 'ready', detail: `127.0.0.1:${port}` })
+    console.log('[tts] Pocket-TTS server is ready')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('[tts] Could not start the backend:', message)
+    setTtsStatus({ phase: 'error', message })
+  }
+}
+
+async function waitForTtsReady(child: ChildProcess, port: number): Promise<void> {
+  const deadline = Date.now() + TTS_HEALTH_TIMEOUT_MS
+
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error('The text-to-speech backend exited before it was ready.')
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`)
+      if (response.ok) return
+    } catch {
+      // The server is not listening yet; keep polling.
+    }
+
+    await delay(500)
+  }
+
+  throw new Error('The text-to-speech backend did not become ready in time.')
 }
 
 function stopTTSBackend(): void {
+  isStoppingTts = true
   if (ttsProcess && !ttsProcess.killed) {
     ttsProcess.kill()
   }
@@ -197,8 +336,18 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
 
   if (!existsSync(pythonExecutable) || (!isPackaged && !existsSync(backendScript))) {
     console.error(`Voice backend is not prepared: ${pythonExecutable}`)
+    setSttStatus({
+      wakeWord: { phase: 'error', message: 'The voice backend is not installed.' },
+      transcription: { phase: 'error', message: 'The voice backend is not installed.' }
+    })
     return
   }
+
+  isStoppingVoice = false
+  setSttStatus({
+    wakeWord: { phase: 'starting', detail: 'Starting voice listener' },
+    transcription: { phase: 'pending', detail: 'Preparing speech-to-text' }
+  })
 
   const child = spawn(pythonExecutable, [backendScript], {
     cwd: backendDirectory,
@@ -211,22 +360,24 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
   })
   voiceProcess = child
 
-  let pending = ''
-  child.stdout?.on('data', (chunk: Buffer) => {
-    pending += chunk.toString()
-    const lines = pending.split(/\r?\n/)
-    pending = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        mainWindow.webContents.send('voice:event', JSON.parse(line))
-      } catch {
-        console.error('Voice backend returned invalid event:', line)
-      }
+  readLines(child.stdout, (line) => {
+    let event: VoiceBackendEvent
+    try {
+      event = JSON.parse(line) as VoiceBackendEvent
+    } catch {
+      console.error('Voice backend returned invalid event:', line)
+      return
     }
+    updateSttStatusFromEvent(event)
+    mainWindow.webContents.send('voice:event', event)
   })
+
   child.on('error', (error) => {
     console.error('Voice backend failed to start:', error)
+    setSttStatus({
+      wakeWord: { phase: 'error', message: error.message },
+      transcription: { phase: 'error', message: error.message }
+    })
     mainWindow.webContents.send('voice:event', {
       event: 'error',
       message: error.message
@@ -237,10 +388,65 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
     // Only clear the shared reference if it still points at this process, so a
     // rapid off/on toggle cannot let the old process clobber the new one.
     if (voiceProcess === child) voiceProcess = undefined
+    if (!isStoppingVoice) {
+      const message = `The voice backend stopped (code=${code ?? 'unknown'}).`
+      setSttStatus({
+        wakeWord: { phase: 'error', message },
+        transcription: { phase: 'error', message }
+      })
+    }
   })
 }
 
+// Maps the STT backend's event stream onto the wake word / transcription rows.
+function updateSttStatusFromEvent(event: VoiceBackendEvent): void {
+  switch (event.event) {
+    case 'ready':
+      setSttStatus({
+        ...sttStatus,
+        wakeWord: {
+          phase: 'ready',
+          detail: event.wake_word ? `Wake word: ${event.wake_word}` : undefined
+        }
+      })
+      break
+    case 'listening':
+      if (sttStatus.wakeWord.phase !== 'ready') {
+        setSttStatus({ ...sttStatus, wakeWord: { phase: 'ready' } })
+      }
+      break
+    case 'transcribing':
+      setSttStatus({ ...sttStatus, transcription: { phase: 'ready', detail: 'Moonshine · en' } })
+      break
+    case 'status': {
+      if (event.phase === 'loading') {
+        setSttStatus({ ...sttStatus, transcription: { phase: 'loading', detail: event.message } })
+      } else if (event.phase === 'ready') {
+        setSttStatus({ ...sttStatus, transcription: { phase: 'ready', detail: event.message } })
+      } else if (event.phase === 'error') {
+        setSttStatus({ ...sttStatus, transcription: { phase: 'error', message: event.message } })
+      } else if (event.phase === 'downloading' || /download/i.test(event.message ?? '')) {
+        setSttStatus({ ...sttStatus, wakeWord: { phase: 'downloading', detail: event.message } })
+      } else {
+        setSttStatus({ ...sttStatus, wakeWord: { phase: 'starting', detail: event.message } })
+      }
+      break
+    }
+    case 'error': {
+      const message = event.message ?? 'The voice backend reported an error.'
+      setSttStatus({
+        wakeWord: { phase: 'error', message },
+        transcription: { phase: 'error', message }
+      })
+      break
+    }
+    default:
+      break
+  }
+}
+
 function stopVoiceBackend(): void {
+  isStoppingVoice = true
   const child = voiceProcess
   voiceProcess = undefined
   if (child && !child.killed) {
@@ -1232,6 +1438,7 @@ app.whenReady().then(() => {
     } else {
       stopVoiceSession()
       stopVoiceBackend()
+      markSttOff()
     }
 
     return enabled
@@ -1247,6 +1454,10 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:get-ai', () => getAISettings())
 
   ipcMain.handle('vl:get-status', () => getVlStatus())
+
+  ipcMain.handle('stt:get-status', () => sttStatus)
+
+  ipcMain.handle('tts:get-status', () => ttsStatus)
 
   ipcMain.handle('settings:save-ai', (_event, settings: unknown) => {
     if (

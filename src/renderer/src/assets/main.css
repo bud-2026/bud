@@ -722,7 +722,8 @@ body {
   font-weight: 600;
 }
 
-.model-status__state--pending {
+.model-status__state--pending,
+.model-status__state--off {
   color: rgba(255, 255, 255, 0.45);
 }
 
@@ -735,7 +736,8 @@ body {
   color: #63e6be;
 }
 
-.model-status__state--starting {
+.model-status__state--starting,
+.model-status__state--loading {
   color: #ffd43b;
 }
 

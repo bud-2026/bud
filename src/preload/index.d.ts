@@ -55,6 +55,19 @@ declare global {
     port?: number
   }
 
+  type BackendPhase = 'pending' | 'downloading' | 'loading' | 'starting' | 'ready' | 'error' | 'off'
+
+  interface BackendComponentStatus {
+    phase: BackendPhase
+    detail?: string
+    message?: string
+  }
+
+  interface SttStatusSnapshot {
+    wakeWord: BackendComponentStatus
+    transcription: BackendComponentStatus
+  }
+
   interface Api {
     ai: {
       ask: (prompt: string, imageUrl?: string) => Promise<string>
@@ -81,6 +94,8 @@ declare global {
       onChunk: (callback: (event: { requestId: string; chunk: Uint8Array }) => void) => () => void
       onEnd: (callback: (requestId: string) => void) => () => void
       onError: (callback: (message: string) => void) => () => void
+      getStatus: () => Promise<BackendComponentStatus>
+      onStatus: (callback: (status: BackendComponentStatus) => void) => () => void
     }
     voice: {
       stopSession: () => Promise<void>
@@ -114,6 +129,10 @@ declare global {
     vl: {
       getStatus: () => Promise<VlStatusSnapshot>
       onStatus: (callback: (status: VlStatusSnapshot) => void) => () => void
+    }
+    stt: {
+      getStatus: () => Promise<SttStatusSnapshot>
+      onStatus: (callback: (status: SttStatusSnapshot) => void) => () => void
     }
   }
 
