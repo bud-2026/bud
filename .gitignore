@@ -2,8 +2,6 @@ node_modules
 backend/**/.venv
 build/python
 build/pyinstaller-*
-build/vl
-build/vl-download
 .env
 .env.*
 !.env.example

@@ -311,7 +311,8 @@ function flattenCopy(sourceDir: string, destinationDir: string): void {
 async function provisionLlamaRuntime(): Promise<string> {
   if (process.platform !== 'win32') {
     throw new Error(
-      'llama-server is not prepared. Stage it in build/vl first (run "npm run prepare:vl").'
+      'The llama.cpp runtime is only auto-provisioned on Windows. On other platforms, ' +
+        'stage a llama-server binary in build/vl/bin first.'
     )
   }
 
@@ -384,7 +385,8 @@ async function ensureServerExecutable(): Promise<string> {
   const binaryName = serverBinaryName()
   const runtimeDetail = `build ${LLAMA_VERSION} (${LLAMA_BACKEND})`
 
-  // Packaged apps ship the runtime inside the app resources.
+  // A runtime manually staged inside packaged resources, if any. Slim installs no
+  // longer ship build/vl — the runtime is downloaded into the user-data directory.
   if (app.isPackaged) {
     const packagedExecutable = join(process.resourcesPath, 'vl', 'bin', binaryName)
     if (existsSync(packagedExecutable)) {
@@ -393,7 +395,7 @@ async function ensureServerExecutable(): Promise<string> {
     }
   }
 
-  // Development builds can use a pre-staged copy (npm run prepare:vl).
+  // Development builds can use a manually pre-staged copy under build/vl/bin.
   const stagedExecutable = join(app.getAppPath(), 'build', 'vl', 'bin', binaryName)
   if (existsSync(stagedExecutable)) {
     setComponentStatus('runtime', { phase: 'downloaded', detail: runtimeDetail })

@@ -93,7 +93,7 @@ The key innovation is that Bud is **local-first and smart about where work happe
 - **Text-to-Speech (local):** Python — Pocket-TTS behind a FastAPI/uvicorn server with a chunked `/tts-stream` PCM endpoint
 - **General-knowledge LLM:** Nebius AI Studio / Token Factory (OpenAI-compatible API), configurable base URL, key, and model
 - **AI client:** OpenAI Node SDK, pointed at either the local server or Nebius
-- **Packaging:** electron-builder + PyInstaller, staged into `build/python` and `build/vl`
+- **Packaging:** electron-builder + PyInstaller (Python speech backends staged into `build/python`; model weights and the llama.cpp runtime are downloaded on first launch)
 - **Target platform:** Windows x64 with an NVIDIA CUDA GPU (single-GPU, fully local inference)
 
 ### How It Works
@@ -129,7 +129,7 @@ bud/
 ├── backend/
 │   ├── stt/             # Python wake word + speech-to-text worker (JSON event stream)
 │   └── tts/             # Python Pocket-TTS FastAPI server (streaming PCM)
-└── scripts/             # PowerShell: prepare-backends, prepare-vl, validate-backends
+└── scripts/             # prepare_backends.py (venv + PyInstaller staging)
 ```
 
 ---
@@ -143,7 +143,7 @@ Follow these simple steps to run the project locally for testing during evaluati
 - **OS:** Windows 10/11 x64 (the bundled llama.cpp runtime and preparation scripts target Windows)
 - **Node.js:** `>= 18.0.0` (Node 22 recommended)
 - **Package Manager:** `pnpm` (lockfile included) or `npm`
-- **Python:** 3.12, available as `py -3.12` (only needed to prepare the speech backends)
+- **uv:** manages Python 3.12 for the speech backends (the prepare scripts run via `uv run`)
 - **GPU:** NVIDIA GPU with a recent CUDA 12.x driver (for local Qwen3-VL inference)
 - **Disk:** ~10 GB free for the runtime, models, and Python bundles, plus enough free VRAM for a 4B model
 
@@ -174,7 +174,13 @@ GENERAL_MODEL_ID=your_general_model_id
 
 ### 3. Prepare the Backends (Windows, one time)
 
-This creates the Python virtual environments, installs dependencies, pre-caches the speech models, builds the PyInstaller bundles into `build/python`, and downloads the llama.cpp CUDA runtime into `build/vl`.
+For development, create the Python virtual environments and install the speech dependencies:
+
+```bash
+pnpm run setup:dev
+```
+
+To produce the packaged backends instead, `prepare:backends` additionally freezes them with PyInstaller into `build/python`. Model weights and the llama.cpp runtime are **not** staged — the packaged app downloads them on first launch, which keeps the installer small at the cost of a first-run network connection:
 
 ```bash
 pnpm run prepare:backends
@@ -187,7 +193,7 @@ pnpm run validate:backends
 pnpm run dev
 ```
 
-Bud shows a splash while it starts the speech backends and the local vision server. The Qwen3-VL model weights are downloaded to your user-data folder on first use (watch **Settings → Status**). Once the Status panel reads "Bud is ready", say **"Hey Bud"** — or hover the edge of the screen to reveal the toolbar.
+Bud shows a splash while it starts the speech backends and the local vision server. On first use it downloads the vision weights, the speech models, and (on first launch) the llama.cpp CUDA runtime into your user-data folder — watch **Settings → Status**. This requires an internet connection the first time. Once the Status panel reads "Bud is ready", say **"Hey Bud"** — or hover the edge of the screen to reveal the toolbar.
 
 ### 5. Build a Desktop Installer
 

@@ -15,13 +15,11 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
-    "prepare:backends": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-backends.ps1",
-    "prepare:vl": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-vl.ps1",
-    "validate:backends": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-backends.ps1",
-    "build:unpack": "npm run prepare:backends && npm run validate:backends && npm run build && electron-builder --dir",
-    "build:win": "npm run prepare:backends && npm run validate:backends && npm run build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "setup:dev": "uv run --no-project --python 3.12 python scripts/prepare_backends.py --dev",
+    "prepare:backends": "uv run --no-project --python 3.12 python scripts/prepare_backends.py",
+    "validate:backends": "uv run --no-project --python 3.12 python scripts/prepare_backends.py --validate-only",
+    "build:unpack": "npm run prepare:backends && npm run build && electron-builder --dir",
+    "build:win": "npm run prepare:backends && npm run build && electron-builder --win"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

@@ -16,10 +16,6 @@ extraResources:
     to: python
     filter:
       - '**/*'
-  - from: build/vl
-    to: vl
-    filter:
-      - '**/*'
 win:
   executableName: bud
 nsis:

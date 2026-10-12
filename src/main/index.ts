@@ -10,7 +10,7 @@ import {
 import { spawn, type ChildProcess } from 'child_process'
 import dotenv from 'dotenv'
 import OpenAI from 'openai'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -233,6 +233,15 @@ function migrateLegacyAISettings(): void {
   }
 }
 
+// Speech models (Pocket-TTS, Moonshine) are downloaded on first launch into a
+// writable user-data cache rather than being bundled with the app, so a slim
+// installer can stay small at the cost of a one-time download with internet.
+function ensureSpeechModelCacheDirectory(): string {
+  const directory = join(app.getPath('userData'), 'model-cache')
+  mkdirSync(directory, { recursive: true })
+  return directory
+}
+
 async function startTTSBackend(): Promise<void> {
   const isPackaged = app.isPackaged
   const backendDirectory = isPackaged
@@ -261,7 +270,7 @@ async function startTTSBackend(): Promise<void> {
       cwd: backendDirectory,
       env: {
         ...process.env,
-        ...(isPackaged ? { HF_HOME: join(packagedBackendDirectory, 'model-cache') } : {})
+        HF_HOME: ensureSpeechModelCacheDirectory()
       },
       stdio: ['ignore', 'pipe', 'inherit'],
       windowsHide: true
@@ -370,7 +379,7 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
     cwd: backendDirectory,
     env: {
       ...process.env,
-      ...(isPackaged ? { HF_HOME: join(packagedBackendDirectory, 'model-cache') } : {})
+      HF_HOME: ensureSpeechModelCacheDirectory()
     },
     stdio: ['pipe', 'pipe', 'inherit'],
     windowsHide: true
