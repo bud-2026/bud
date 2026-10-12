@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { DEFAULT_TTS_VOICE, POCKET_TTS_VOICES, formatVoiceName } from '../../lib/voices'
+import { DEFAULT_TTS_VOICE, POCKET_TTS_VOICE_GROUPS, formatVoiceName } from '../../lib/voices'
 
 interface VoiceSectionProps {
   isVoiceEnabled: boolean
@@ -112,47 +112,54 @@ function VoiceSection({
         <p className="question-panel__voice-status">
           Bud speaks with <strong>{formatVoiceName(voice)}</strong> · press play to preview
         </p>
-        <ul className="voice-list">
-          {POCKET_TTS_VOICES.map((candidate) => {
-            const isSelected = candidate === voice
-            const isPreviewing = candidate === previewingVoice
-            return (
-              <li
-                key={candidate}
-                className={`voice-option${isSelected ? ' voice-option--selected' : ''}`}
-              >
-                <label className="voice-option__choice">
-                  <input
-                    type="radio"
-                    name="tts-voice"
-                    checked={isSelected}
-                    onChange={() => void handleSelectVoice(candidate)}
-                    disabled={isSavingVoice}
-                  />
-                  <span className="voice-option__name">{formatVoiceName(candidate)}</span>
-                </label>
-                <button
-                  type="button"
-                  className={`voice-option__play${isPreviewing ? ' voice-option__play--active' : ''}`}
-                  onClick={() => void handlePreview(candidate)}
-                  disabled={previewingVoice !== null || isSavingVoice}
-                  aria-label={`Play a sample of the ${formatVoiceName(candidate)} voice`}
-                  title="Play a sample"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        <div className="voice-groups">
+          {POCKET_TTS_VOICE_GROUPS.map((group) => (
+            <div key={group.label} className="voice-group">
+              <span className="voice-group__label">{group.label}</span>
+              <ul className="voice-list">
+                {group.voices.map((candidate) => {
+                  const isSelected = candidate === voice
+                  const isPreviewing = candidate === previewingVoice
+                  return (
+                    <li
+                      key={candidate}
+                      className={`voice-option${isSelected ? ' voice-option--selected' : ''}`}
+                    >
+                      <label className="voice-option__choice">
+                        <input
+                          type="radio"
+                          name="tts-voice"
+                          checked={isSelected}
+                          onChange={() => void handleSelectVoice(candidate)}
+                          disabled={isSavingVoice}
+                        />
+                        <span className="voice-option__name">{formatVoiceName(candidate)}</span>
+                      </label>
+                      <button
+                        type="button"
+                        className={`voice-option__play${isPreviewing ? ' voice-option__play--active' : ''}`}
+                        onClick={() => void handlePreview(candidate)}
+                        disabled={previewingVoice !== null || isSavingVoice}
+                        aria-label={`Play a sample of the ${formatVoiceName(candidate)} voice`}
+                        title="Play a sample"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="14"
+                          height="14"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
 
       <form className="question-panel" onSubmit={handleTtsSubmit}>
