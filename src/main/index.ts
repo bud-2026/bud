@@ -503,7 +503,12 @@ function createWindow(): void {
   mainWindow.setIgnoreMouseEvents(true, { forward: true })
 
   let selectMode = false
+  // Tracked here so the global shortcut and the toolbar/close button stay in
+  // sync: every path funnels through setDebugVisible, which owns this value.
+  let isDebugVisible = false
   const setDebugVisible = (visible: boolean): void => {
+    isDebugVisible = visible
+
     // Showing or hiding the panel must not change mouse interactivity; that is
     // owned entirely by the renderer's hover tracking.
     if (visible) {
@@ -568,10 +573,8 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  let isDebugVisible = true
   const toggleDebugVisibility = (): void => {
-    isDebugVisible = !isDebugVisible
-    setDebugVisible(isDebugVisible)
+    setDebugVisible(!isDebugVisible)
   }
 
   if (!globalShortcut.register('CommandOrControl+Shift+Space', toggleDebugVisibility)) {
