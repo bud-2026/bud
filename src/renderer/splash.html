@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Bud</title>
+    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.92);
+        font-family:
+          Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      /* Matches the app's glass panels (.debug-panel__content / .toolbar__pill). */
+      .splash {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        padding: 34px 44px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        background: rgba(20, 20, 24, 0.88);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+      }
+
+      /* Minimal placeholder mark: a flat ring + dot, swapped for the real logo later. */
+      .logo {
+        display: block;
+        width: 108px;
+        height: 108px;
+        color: #63e6be;
+      }
+
+      .wordmark {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      /* Same subtle spinning indicator language as the app (mint accent). */
+      .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid rgba(255, 255, 255, 0.12);
+        border-top-color: #63e6be;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 2s;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="splash" role="status" aria-label="Bud is loading">
+      <svg
+        class="logo"
+        viewBox="0 0 48 48"
+        role="img"
+        aria-label="Bud"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <circle cx="24" cy="24" r="19" fill="none" stroke="currentColor" stroke-width="2.5" />
+        <circle cx="24" cy="24" r="7" fill="currentColor" />
+      </svg>
+
+      <p class="wordmark">Starting Bud...</p>
+
+      <div class="spinner" aria-hidden="true"></div>
+    </div>
+  </body>
+</html>

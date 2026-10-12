@@ -38,6 +38,7 @@ const TTS_HEALTH_TIMEOUT_MS = 120_000
 let ttsProcess: ChildProcess | undefined
 let voiceProcess: ChildProcess | undefined
 let mainWindowRef: BrowserWindow | undefined
+let splashWindow: BrowserWindow | undefined
 let isStoppingTts = false
 let isStoppingVoice = false
 
@@ -468,6 +469,94 @@ function setVoiceListenMode(continuous: boolean): void {
   }
 }
 
+// A small, frame-less window shown while the overlay renderer boots. It loads a
+// lightweight static page (src/renderer/splash.html) so it appears before the
+// heavier React overlay bundle is ready.
+//
+// Note: `ready-to-show` is unreliable for transparent windows that are not
+// fullscreen, so the splash is revealed from `did-finish-load` too. A minimum
+// visible time keeps it from flashing away before a user can register it.
+const SPLASH_MIN_VISIBLE_MS = 1500
+let splashShownAt = 0
+
+function createSplashWindow(): void {
+  if (splashWindow) return
+
+  const splash = new BrowserWindow({
+    width: 360,
+    height: 360,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    center: true,
+    show: false,
+    hasShadow: false,
+    autoHideMenuBar: true,
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      sandbox: false
+    }
+  })
+
+  // Keep the splash above the overlay (which also uses the screen-saver level)
+  // until it is closed.
+  splash.setAlwaysOnTop(true, 'screen-saver')
+  splashWindow = splash
+
+  const revealSplash = (): void => {
+    if (splash.isDestroyed() || splash.isVisible()) return
+    if (!splashShownAt) splashShownAt = Date.now()
+    // showInactive keeps the fullscreen overlay's focus intact.
+    splash.showInactive()
+  }
+
+  // Whichever fires first wins; `ready-to-show` avoids a flash of empty space
+  // where it works, `did-finish-load` covers transparent windows where it does.
+  splash.once('ready-to-show', revealSplash)
+  splash.webContents.once('did-finish-load', revealSplash)
+
+  splash.on('closed', () => {
+    if (splashWindow === splash) splashWindow = undefined
+  })
+
+  // Load the static splash straight from disk in both dev and production. It is
+  // self-contained, so there is no reason to fetch it through the renderer dev
+  // server, which can take seconds to answer its first request while it compiles
+  // the overlay bundle.
+  const splashFile = is.dev
+    ? join(app.getAppPath(), 'src/renderer/splash.html')
+    : join(__dirname, '../renderer/splash.html')
+  void splash.loadFile(splashFile)
+}
+
+// Closes the splash once the overlay is up, but never sooner than the minimum
+// visible time measured from when the splash actually appeared.
+function dismissSplash(): void {
+  if (!splashWindow) return
+  const remaining = splashShownAt
+    ? Math.max(0, SPLASH_MIN_VISIBLE_MS - (Date.now() - splashShownAt))
+    : 0
+  if (remaining === 0) {
+    closeSplash()
+    return
+  }
+  setTimeout(closeSplash, remaining)
+}
+
+function closeSplash(): void {
+  const splash = splashWindow
+  splashWindow = undefined
+  splashShownAt = 0
+  if (splash && !splash.isDestroyed()) splash.close()
+}
+
 function createWindow(): void {
   // Create a transparent overlay that covers the current display.
   const mainWindow = new BrowserWindow({
@@ -558,6 +647,8 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     setDebugVisible(true)
     mainWindow.show()
+    // The overlay has painted, so the splash has done its job.
+    dismissSplash()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -1279,6 +1370,9 @@ async function streamTTS(text: string, webContents: Electron.WebContents): Promi
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  // Show the splash first so something is on screen while the overlay renderer
+  // and its backends spin up.
+  createSplashWindow()
   migrateLegacyAISettings()
   void startTTSBackend()
   startLocalVlm()
@@ -1529,6 +1623,7 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  closeSplash()
   stopTTSBackend()
   stopVoiceBackend()
   stopLocalVlm()

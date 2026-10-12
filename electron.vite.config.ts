@@ -11,6 +11,16 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [react()]
+    plugins: [react()],
+    build: {
+      rollupOptions: {
+        input: {
+          // The React overlay and the lightweight splash are built as separate
+          // pages so the splash can load without waiting on the overlay bundle.
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          splash: resolve(__dirname, 'src/renderer/splash.html')
+        }
+      }
+    }
   }
 })
