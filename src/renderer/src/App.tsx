@@ -405,15 +405,13 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [isPointerNearToolbar])
   useEffect(() => {
-    if (isDebugOpen) return
-
     let interactive = false
     const handleMouseMove = (event: MouseEvent): void => {
       const nextInteractive =
         isToolbarDraggingRef.current ||
         Boolean(
           event.target instanceof Element &&
-          event.target.closest('.toolbar, .indicator__copy-btn, .ask-bar')
+          event.target.closest('.toolbar, .indicator__copy-btn, .ask-bar, .debug-panel--open')
         )
       if (nextInteractive === interactive) return
       interactive = nextInteractive
@@ -425,7 +423,7 @@ function App(): React.JSX.Element {
       window.removeEventListener('mousemove', handleMouseMove)
       if (interactive) window.api.overlay.setInteractive(false)
     }
-  }, [isDebugOpen])
+  }, [])
   // When the toolbar appears under a stationary pointer, the forwarded
   // mousemove that revealed it arrived while the window was still click-through.
   // Promote the window to interactive so the revealed controls are clickable.
@@ -437,6 +435,16 @@ function App(): React.JSX.Element {
       window.api.overlay.setInteractive(true)
     }
   }, [isToolbarVisible])
+  // If the panel opens while the pointer already rests over it, no mousemove
+  // fires, so promote interactivity immediately for the revealed controls.
+  useEffect(() => {
+    if (!isDebugOpen) return
+    const { x, y } = pointerRef.current
+    const element = document.elementFromPoint(x, y)
+    if (element instanceof Element && element.closest('.debug-panel')) {
+      window.api.overlay.setInteractive(true)
+    }
+  }, [isDebugOpen])
   useEffect(() => {
     void window.api.settings
       .getAI()

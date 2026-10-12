@@ -291,11 +291,12 @@ function createWindow(): void {
   // fullscreen applications and regular always-on-top windows.
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
-  let debugVisible = true
   let selectMode = false
   const setDebugVisible = (visible: boolean): void => {
-    debugVisible = visible
-    mainWindow.setIgnoreMouseEvents(!visible && !selectMode, { forward: true })
+    // The overlay always stays click-through by default; the renderer promotes
+    // it to interactive while the pointer rests over the panel or toolbar, so
+    // an open settings panel never blocks the desktop behind it.
+    mainWindow.setIgnoreMouseEvents(!selectMode, { forward: true })
 
     if (visible) {
       mainWindow.show()
@@ -308,12 +309,9 @@ function createWindow(): void {
   }
 
   ipcMain.on('overlay:set-interactive', (event, interactive: unknown) => {
-    if (
-      event.sender !== mainWindow.webContents ||
-      debugVisible ||
-      selectMode ||
-      typeof interactive !== 'boolean'
-    ) {
+    // Region selection forces interactivity on, so hover-driven updates are
+    // ignored while it is active.
+    if (event.sender !== mainWindow.webContents || selectMode || typeof interactive !== 'boolean') {
       return
     }
     mainWindow.setIgnoreMouseEvents(!interactive, { forward: true })
@@ -330,7 +328,7 @@ function createWindow(): void {
       mainWindow.setIgnoreMouseEvents(false)
       mainWindow.show()
       mainWindow.focus()
-    } else if (!debugVisible) {
+    } else {
       mainWindow.setIgnoreMouseEvents(true, { forward: true })
     }
   })
