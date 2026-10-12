@@ -7,6 +7,7 @@ interface DebugSectionProps {
   isSelecting: boolean
   isVoiceEnabled: boolean
   onRegionControlClick: () => void
+  onClearRegion: () => void
   question: string
   onQuestionChange: (value: string) => void
   onAskSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -22,6 +23,7 @@ function DebugSection({
   isSelecting,
   isVoiceEnabled,
   onRegionControlClick,
+  onClearRegion,
   question,
   onQuestionChange,
   onAskSubmit,
@@ -33,22 +35,34 @@ function DebugSection({
     <form className="question-panel" onSubmit={onAskSubmit}>
       <p className="question-panel__voice-status">{voiceStatus}</p>
       <div className="region-control">
-        <button type="button" onClick={onRegionControlClick} disabled={isSelecting}>
-          {isSelecting
-            ? 'Selecting…'
-            : region
-              ? !isVoiceEnabled
-                ? 'Reselect area'
-                : isAutoListen
-                  ? 'Stop listening'
-                  : 'Start listening'
-              : 'Select area to analyze'}
-        </button>
+        <div className="region-control__buttons">
+          <button type="button" onClick={onRegionControlClick} disabled={isSelecting}>
+            {isSelecting
+              ? 'Selecting…'
+              : region
+                ? !isVoiceEnabled
+                  ? 'Reselect area'
+                  : isAutoListen
+                    ? 'Stop listening'
+                    : 'Start listening'
+                : 'Select area to analyze'}
+          </button>
+          {region ? (
+            <button
+              type="button"
+              className="region-control__clear"
+              onClick={onClearRegion}
+              disabled={isSelecting}
+            >
+              Clear area
+            </button>
+          ) : null}
+        </div>
         <span className="region-control__status">
           {region
             ? isAutoListen
-              ? `Area selected (${region.width}×${region.height} of 1000) · auto-listening`
-              : `Area selected (${region.width}×${region.height} of 1000)`
+              ? `Area selected (${region.width}×${region.height} of 1000) · auto-listening · Esc or × to clear`
+              : `Area selected (${region.width}×${region.height} of 1000) · Esc or × to clear`
             : 'Analyzing the full screen'}
         </span>
       </div>

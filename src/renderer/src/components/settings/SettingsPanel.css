@@ -156,6 +156,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -170,6 +171,119 @@
   font-size: 12px;
   font-weight: 500;
   line-height: 1.35;
+}
+
+.settings-card__status {
+  flex: none;
+  align-self: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.settings-card__status--ready {
+  color: #081c16;
+  background: #63e6be;
+}
+
+.settings-card__status--pending {
+  color: #ffd43b;
+  background: rgba(255, 212, 59, 0.16);
+}
+
+.settings-card__status--error {
+  color: #ffb5b5;
+  background: rgba(255, 107, 107, 0.2);
+}
+
+.settings-card--disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.settings-card--disabled:hover,
+.settings-card--disabled:active {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  transform: none;
+}
+
+.readiness {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.readiness__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.readiness__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.readiness__title {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.readiness__description {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.readiness--ready {
+  border-color: rgba(99, 230, 190, 0.5);
+  background: rgba(99, 230, 190, 0.1);
+}
+
+.readiness--ready .readiness__dot {
+  background: #63e6be;
+  box-shadow: 0 0 10px rgba(99, 230, 190, 0.8);
+}
+
+.readiness--starting .readiness__dot {
+  background: #ffd43b;
+  box-shadow: 0 0 10px rgba(255, 212, 59, 0.8);
+  animation: readiness-pulse 1.4s ease-in-out infinite;
+}
+
+.readiness--error {
+  border-color: rgba(255, 135, 135, 0.5);
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.readiness--error .readiness__dot {
+  background: #ff8787;
+  box-shadow: 0 0 10px rgba(255, 135, 135, 0.8);
+}
+
+@keyframes readiness-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .settings-section {

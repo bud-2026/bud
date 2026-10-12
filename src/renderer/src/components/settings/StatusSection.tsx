@@ -1,3 +1,6 @@
+import { describeGlobalReadiness } from '../../lib/readiness'
+import type { Readiness } from '../../lib/readiness'
+
 // Shared status shape for every bundled component (vision, speech, TTS). The
 // vision server reports byte progress and a `downloaded` phase; the speech
 // backends additionally use `loading` and `off`.
@@ -84,14 +87,29 @@ function ModelStatusRow({ label, version, status }: ModelStatusRowProps): React.
 }
 
 interface StatusSectionProps {
+  readiness: Readiness
   vlStatus: VlStatusSnapshot | null
   sttStatus: SttStatusSnapshot | null
   ttsStatus: BackendComponentStatus | null
 }
 
-function StatusSection({ vlStatus, sttStatus, ttsStatus }: StatusSectionProps): React.JSX.Element {
+function StatusSection({
+  readiness,
+  vlStatus,
+  sttStatus,
+  ttsStatus
+}: StatusSectionProps): React.JSX.Element {
+  const summary = describeGlobalReadiness(readiness)
+
   return (
     <div className="question-panel">
+      <div className={`readiness readiness--${readiness.level}`}>
+        <span className="readiness__dot" aria-hidden="true" />
+        <div className="readiness__text">
+          <strong className="readiness__title">{summary.title}</strong>
+          <span className="readiness__description">{summary.description}</span>
+        </div>
+      </div>
       {vlStatus || sttStatus || ttsStatus ? (
         <ul className="model-status">
           {vlStatus ? (

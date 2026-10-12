@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AskBar from './components/AskBar'
 import Indicator from './components/Indicator'
 import RegionSelector from './components/RegionSelector'
@@ -6,6 +6,7 @@ import Toolbar, { type ToolbarEdge } from './components/Toolbar'
 import VoiceOrb from './components/VoiceOrb'
 import SettingsPanel from './components/settings/SettingsPanel'
 import { askQuestion } from './lib/ai'
+import { computeReadiness } from './lib/readiness'
 
 const VOICE_HISTORY_MESSAGE_LIMIT = 20
 const TOOLBAR_EDGE_INSET = 8
@@ -91,6 +92,13 @@ function App(): React.JSX.Element {
   const pendingBoxClearRef = useRef(false)
   const screenConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
   const voiceConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
+
+  // Single source of truth for "is Bud usable". Drives the Status panel banner,
+  // gating of the Voice/Debug cards, and the toolbar buttons.
+  const readiness = useMemo(
+    () => computeReadiness(vlStatus, sttStatus, ttsStatus, isVoiceEnabled),
+    [vlStatus, sttStatus, ttsStatus, isVoiceEnabled]
+  )
 
   const setOrbState = useCallback(
     (state: 'hidden' | 'listening' | 'analyzing' | 'responding'): void => {
@@ -334,7 +342,9 @@ function App(): React.JSX.Element {
       isToolbarDraggingRef.current ||
       Boolean(
         target instanceof Element &&
-        target.closest('.toolbar, .indicator__copy-btn, .ask-bar, .debug-panel--open')
+        target.closest(
+          '.toolbar, .indicator__copy-btn, .ask-bar, .debug-panel--open, .region-clear'
+        )
       )
     if (next === interactiveRef.current) return
     interactiveRef.current = next
@@ -681,8 +691,30 @@ function App(): React.JSX.Element {
             width: `${region.width / 10}%`,
             height: `${region.height / 10}%`
           }}
-          aria-hidden="true"
-        />
+        >
+          <button
+            type="button"
+            className="region-clear"
+            onClick={clearRegion}
+            aria-label="Clear selected area"
+            title="Clear selected area"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="18" y1="6" x2="6" y2="18" />
+            </svg>
+          </button>
+        </div>
       )}
       <Toolbar
         edge={toolbar.edge}
@@ -693,6 +725,7 @@ function App(): React.JSX.Element {
         hasRegion={region !== null}
         isVoiceEnabled={isVoiceEnabled}
         isAsking={isAskOpen}
+        ready={readiness.ready}
         onTogglePanel={toggleDebugPanel}
         onSelectArea={startRegionSelection}
         onToggleVoice={toggleVoice}
@@ -712,6 +745,7 @@ function App(): React.JSX.Element {
       <SettingsPanel
         open={isDebugOpen}
         onClose={closeDebugPanel}
+        readiness={readiness}
         vlStatus={vlStatus}
         sttStatus={sttStatus}
         ttsStatus={ttsStatus}
@@ -728,6 +762,7 @@ function App(): React.JSX.Element {
         isAutoListen={isAutoListen}
         isSelecting={isSelecting}
         onRegionControlClick={handleRegionControlClick}
+        onClearRegion={clearRegion}
         error={error}
         onError={setError}
         onQuit={quitApp}

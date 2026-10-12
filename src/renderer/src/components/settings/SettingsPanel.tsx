@@ -6,6 +6,8 @@ import VoiceSection from './VoiceSection'
 import AiSection from './AiSection'
 import DebugSection from './DebugSection'
 import ApplicationSection from './ApplicationSection'
+import { describeReadiness } from '../../lib/readiness'
+import type { Readiness } from '../../lib/readiness'
 import './SettingsPanel.css'
 
 type SettingsSection = 'status' | 'voice' | 'ai' | 'debug' | 'application'
@@ -13,6 +15,7 @@ type SettingsSection = 'status' | 'voice' | 'ai' | 'debug' | 'application'
 interface SettingsPanelProps {
   open: boolean
   onClose: () => void
+  readiness: Readiness
   vlStatus: VlStatusSnapshot | null
   sttStatus: SttStatusSnapshot | null
   ttsStatus: BackendComponentStatus | null
@@ -29,6 +32,7 @@ interface SettingsPanelProps {
   isAutoListen: boolean
   isSelecting: boolean
   onRegionControlClick: () => void
+  onClearRegion: () => void
   error: string | null
   onError: (message: string | null) => void
   onQuit: () => void
@@ -47,6 +51,8 @@ interface SettingsCardConfig {
   title: string
   description: string
   icon: React.JSX.Element
+  /** Which readiness signal gates this card. */
+  requires: 'none' | 'global'
 }
 
 const CARDS: SettingsCardConfig[] = [
@@ -54,6 +60,7 @@ const CARDS: SettingsCardConfig[] = [
     section: 'status',
     title: 'Status',
     description: 'Component and model installation status',
+    requires: 'none',
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -74,6 +81,7 @@ const CARDS: SettingsCardConfig[] = [
     section: 'voice',
     title: 'Voice',
     description: 'Voice activation and text-to-speech',
+    requires: 'global',
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -96,6 +104,7 @@ const CARDS: SettingsCardConfig[] = [
     section: 'ai',
     title: 'AI',
     description: 'Base URL, API key, and model ID',
+    requires: 'none',
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -118,6 +127,7 @@ const CARDS: SettingsCardConfig[] = [
     section: 'debug',
     title: 'Debug',
     description: 'Area selection, screen questions, and responses',
+    requires: 'global',
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -140,6 +150,7 @@ const CARDS: SettingsCardConfig[] = [
     section: 'application',
     title: 'Application',
     description: 'Quit Bud',
+    requires: 'none',
     icon: (
       <svg
         viewBox="0 0 24 24"
@@ -162,6 +173,7 @@ const CARDS: SettingsCardConfig[] = [
 function SettingsPanel({
   open,
   onClose,
+  readiness,
   vlStatus,
   sttStatus,
   ttsStatus,
@@ -178,6 +190,7 @@ function SettingsPanel({
   isAutoListen,
   isSelecting,
   onRegionControlClick,
+  onClearRegion,
   error,
   onError,
   onQuit
@@ -205,7 +218,14 @@ function SettingsPanel({
   const renderSection = (): React.JSX.Element => {
     switch (section) {
       case 'status':
-        return <StatusSection vlStatus={vlStatus} sttStatus={sttStatus} ttsStatus={ttsStatus} />
+        return (
+          <StatusSection
+            readiness={readiness}
+            vlStatus={vlStatus}
+            sttStatus={sttStatus}
+            ttsStatus={ttsStatus}
+          />
+        )
       case 'voice':
         return (
           <VoiceSection
@@ -225,6 +245,7 @@ function SettingsPanel({
             isSelecting={isSelecting}
             isVoiceEnabled={isVoiceEnabled}
             onRegionControlClick={onRegionControlClick}
+            onClearRegion={onClearRegion}
             question={question}
             onQuestionChange={onQuestionChange}
             onAskSubmit={onAskSubmit}
@@ -278,15 +299,31 @@ function SettingsPanel({
 
         {section === null ? (
           <nav className="settings-grid" aria-label="Settings sections">
-            {CARDS.map((card) => (
-              <SettingsCard
-                key={card.section}
-                icon={card.icon}
-                title={card.title}
-                description={card.description}
-                onClick={() => setSection(card.section)}
-              />
-            ))}
+            {CARDS.map((card) => {
+              // The Voice card stays reachable while voice is on so a failed
+              // voice backend can still be turned off again.
+              const gated =
+                card.requires === 'global' &&
+                !readiness.ready &&
+                !(card.section === 'voice' && isVoiceEnabled)
+              // The Status card always surfaces the aggregate readiness so it is
+              // visible without opening the section; gated cards show why they
+              // are unavailable.
+              const showStatus = card.section === 'status' || gated
+              const summary = showStatus ? describeReadiness(readiness.level) : null
+              return (
+                <SettingsCard
+                  key={card.section}
+                  icon={card.icon}
+                  title={card.title}
+                  description={card.description}
+                  onClick={() => setSection(card.section)}
+                  disabled={gated}
+                  status={summary?.label}
+                  statusTone={summary?.tone}
+                />
+              )
+            })}
           </nav>
         ) : (
           renderSection()

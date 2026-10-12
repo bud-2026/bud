@@ -18,6 +18,8 @@ interface ToolbarProps {
   hasRegion: boolean
   isVoiceEnabled: boolean
   isAsking: boolean
+  /** Global readiness: functionality is unavailable until Bud is ready. */
+  ready: boolean
   onTogglePanel: () => void
   onSelectArea: () => void
   onToggleVoice: () => void
@@ -35,6 +37,7 @@ function Toolbar({
   hasRegion,
   isVoiceEnabled,
   isAsking,
+  ready,
   onTogglePanel,
   onSelectArea,
   onToggleVoice,
@@ -45,6 +48,10 @@ function Toolbar({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ edge: ToolbarEdge } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+
+  // Voice can always be turned off so a failed voice backend cannot strand the
+  // user; turning it back on still waits for readiness.
+  const canToggleVoice = ready || isVoiceEnabled
 
   const clampPercent = useCallback((targetEdge: ToolbarEdge, percent: number): number => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -167,8 +174,9 @@ function Toolbar({
           type="button"
           className={`toolbar__btn${isSelecting ? ' toolbar__btn--active' : ''}`}
           onClick={onSelectArea}
+          disabled={!ready}
           aria-label="Select area to analyze"
-          title="Select area to analyze"
+          title={ready ? 'Select area to analyze' : 'Waiting for Bud to be ready'}
         >
           <svg
             className="toolbar__icon"
@@ -194,9 +202,16 @@ function Toolbar({
             isVoiceEnabled ? ' toolbar__btn--active' : ' toolbar__btn--muted'
           }`}
           onClick={onToggleVoice}
+          disabled={!canToggleVoice}
           aria-label={isVoiceEnabled ? 'Turn off voice activation' : 'Turn on voice activation'}
           aria-pressed={isVoiceEnabled}
-          title={isVoiceEnabled ? 'Voice activation on' : 'Voice activation off'}
+          title={
+            canToggleVoice
+              ? isVoiceEnabled
+                ? 'Voice activation on'
+                : 'Voice activation off'
+              : 'Waiting for Bud to be ready'
+          }
         >
           <svg
             className="toolbar__icon"
@@ -220,9 +235,10 @@ function Toolbar({
           type="button"
           className={`toolbar__btn${isAsking ? ' toolbar__btn--active' : ''}`}
           onClick={onOpenAsk}
+          disabled={!ready}
           aria-label="Type a question"
           aria-pressed={isAsking}
-          title="Type a question"
+          title={ready ? 'Type a question' : 'Waiting for Bud to be ready'}
         >
           <svg
             className="toolbar__icon"

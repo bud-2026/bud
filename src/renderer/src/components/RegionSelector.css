@@ -42,11 +42,66 @@
   pointer-events: none;
 }
 
+.region-clear {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 135, 135, 0.6);
+  border-radius: 50%;
+  padding: 0;
+  color: #ffd9d9;
+  background: rgba(20, 20, 24, 0.9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+
+.region-clear:hover {
+  border-color: rgba(255, 92, 92, 0.95);
+  color: #ffffff;
+  background: rgba(255, 92, 92, 0.9);
+}
+
+.region-clear:active {
+  background: rgba(255, 92, 92, 1);
+}
+
 .region-control {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 12px;
+}
+
+.region-control__buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.region-control__buttons button.region-control__clear {
+  border: 1px solid rgba(255, 135, 135, 0.5);
+  color: #ffd9d9;
+  background: rgba(255, 107, 107, 0.18);
+}
+
+.region-control__buttons button.region-control__clear:hover {
+  background: rgba(255, 107, 107, 0.32);
+}
+
+.region-control__buttons button.region-control__clear:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .region-control__status {

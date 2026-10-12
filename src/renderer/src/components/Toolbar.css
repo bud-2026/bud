@@ -181,3 +181,11 @@
     0 0 0 2px rgba(20, 20, 24, 0.85),
     0 0 6px rgba(99, 230, 190, 0.8);
 }
+
+/* Buttons wait for Bud to be ready; pointer-events is disabled so the hover
+   styling does not fight the dimmed state. */
+.toolbar__btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+  pointer-events: none;
+}
