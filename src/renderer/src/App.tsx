@@ -153,6 +153,7 @@ function App(): React.JSX.Element {
   const isToolbarVisibleRef = useRef(false)
   const isToolbarDraggingRef = useRef(false)
   const pointerRef = useRef({ x: 0, y: -1 })
+  const interactiveRef = useRef(false)
   const isLoadingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const voiceSessionActiveRef = useRef(false)
@@ -290,6 +291,10 @@ function App(): React.JSX.Element {
     window.api.overlay.setDebugVisible(!isDebugOpen)
   }, [isDebugOpen])
 
+  const closeDebugPanel = useCallback((): void => {
+    window.api.overlay.setDebugVisible(false)
+  }, [])
+
   const toggleVoice = useCallback((): void => {
     const next = !voiceEnabledRef.current
     voiceEnabledRef.current = next
@@ -386,6 +391,22 @@ function App(): React.JSX.Element {
       : x >= viewportWidth - TOOLBAR_EDGE_INSET - width
   }, [])
 
+  // Single source of truth for overlay interactivity. The window stays
+  // click-through, and we only make it interactive while the pointer is over a
+  // surface the user can act on. Using a ref (not a local) keeps the mousemove
+  // listener and the "surface appeared/disappeared" effect in sync.
+  const setOverlayInteractive = useCallback((target: EventTarget | null): void => {
+    const next =
+      isToolbarDraggingRef.current ||
+      Boolean(
+        target instanceof Element &&
+        target.closest('.toolbar, .indicator__copy-btn, .ask-bar, .debug-panel--open')
+      )
+    if (next === interactiveRef.current) return
+    interactiveRef.current = next
+    window.api.overlay.setInteractive(next)
+  }, [])
+
   // Registered before the interactive listener so it updates the shared
   // pointer/visibility refs first whenever a mouse move fires.
   useEffect(() => {
@@ -405,46 +426,26 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [isPointerNearToolbar])
   useEffect(() => {
-    let interactive = false
     const handleMouseMove = (event: MouseEvent): void => {
-      const nextInteractive =
-        isToolbarDraggingRef.current ||
-        Boolean(
-          event.target instanceof Element &&
-          event.target.closest('.toolbar, .indicator__copy-btn, .ask-bar, .debug-panel--open')
-        )
-      if (nextInteractive === interactive) return
-      interactive = nextInteractive
-      window.api.overlay.setInteractive(interactive)
+      setOverlayInteractive(event.target)
     }
 
     window.addEventListener('mousemove', handleMouseMove)
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
-      if (interactive) window.api.overlay.setInteractive(false)
+      if (interactiveRef.current) {
+        interactiveRef.current = false
+        window.api.overlay.setInteractive(false)
+      }
     }
-  }, [])
-  // When the toolbar appears under a stationary pointer, the forwarded
-  // mousemove that revealed it arrived while the window was still click-through.
-  // Promote the window to interactive so the revealed controls are clickable.
+  }, [setOverlayInteractive])
+  // A surface can appear or disappear under a stationary pointer (the toolbar
+  // gets revealed, the panel opens/closes, the ask bar opens), in which case no
+  // mousemove fires. Re-evaluate interactivity from the last known pointer.
   useEffect(() => {
-    if (!isToolbarVisible) return
     const { x, y } = pointerRef.current
-    const element = document.elementFromPoint(x, y)
-    if (element instanceof Element && element.closest('.toolbar')) {
-      window.api.overlay.setInteractive(true)
-    }
-  }, [isToolbarVisible])
-  // If the panel opens while the pointer already rests over it, no mousemove
-  // fires, so promote interactivity immediately for the revealed controls.
-  useEffect(() => {
-    if (!isDebugOpen) return
-    const { x, y } = pointerRef.current
-    const element = document.elementFromPoint(x, y)
-    if (element instanceof Element && element.closest('.debug-panel')) {
-      window.api.overlay.setInteractive(true)
-    }
-  }, [isDebugOpen])
+    setOverlayInteractive(document.elementFromPoint(x, y))
+  }, [isDebugOpen, isAskOpen, isToolbarVisible, isSelecting, setOverlayInteractive])
   useEffect(() => {
     void window.api.settings
       .getAI()
@@ -789,7 +790,7 @@ function App(): React.JSX.Element {
         <div className="debug-panel__content">
           <h1 className="debug-panel__title">Settings Panel</h1>
           <div className="question-panel">
-            <label htmlFor="screen-question">Ctrl+Shift+Space to toggle panel</label>
+            <label className='keybind-label' htmlFor="screen-question">Ctrl+Shift+Space to toggle panel</label>
             <h2 className="question-panel__title">Installations</h2>
             {vlStatus ? (
               <ul className="model-status">
@@ -926,6 +927,28 @@ function App(): React.JSX.Element {
           </form>
           {error && <p className="question-panel__error">{error}</p>}
         </div>
+        <button
+          type="button"
+          className="debug-panel__close"
+          onClick={closeDebugPanel}
+          aria-label="Close settings panel"
+          title="Close settings panel"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
       </section>
       {result?.boxes.map((box, index) => (
         <Indicator

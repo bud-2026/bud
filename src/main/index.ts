@@ -291,13 +291,15 @@ function createWindow(): void {
   // fullscreen applications and regular always-on-top windows.
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
+  // Start click-through. The renderer promotes the window to interactive while
+  // the pointer is over the toolbar, panel, or ask bar, and never forces it back
+  // itself, so a click is not immediately followed by a pass-through window.
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
+
   let selectMode = false
   const setDebugVisible = (visible: boolean): void => {
-    // The overlay always stays click-through by default; the renderer promotes
-    // it to interactive while the pointer rests over the panel or toolbar, so
-    // an open settings panel never blocks the desktop behind it.
-    mainWindow.setIgnoreMouseEvents(!selectMode, { forward: true })
-
+    // Showing or hiding the panel must not change mouse interactivity; that is
+    // owned entirely by the renderer's hover tracking.
     if (visible) {
       mainWindow.show()
       mainWindow.focus()
