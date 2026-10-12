@@ -46,7 +46,12 @@ function Toolbar({
   onDraggingChange
 }: ToolbarProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const dragRef = useRef<{ edge: ToolbarEdge } | null>(null)
+  const dragRef = useRef<{
+    edge: ToolbarEdge
+    /** Grab point offset from the toolbar center, in viewport pixels. */
+    offsetX: number
+    offsetY: number
+  } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
 
   // Voice can always be turned off so a failed voice backend cannot strand the
@@ -65,7 +70,12 @@ function Toolbar({
   const handleGripDown = (event: React.MouseEvent): void => {
     if (event.button !== 0) return
     event.preventDefault()
-    dragRef.current = { edge }
+    const rect = containerRef.current?.getBoundingClientRect()
+    dragRef.current = {
+      edge,
+      offsetX: rect ? event.clientX - (rect.left + rect.width / 2) : 0,
+      offsetY: rect ? event.clientY - (rect.top + rect.height / 2) : 0
+    }
     setIsDragging(true)
   }
 
@@ -98,7 +108,12 @@ function Toolbar({
       }
 
       const horizontal = nextEdge === 'top' || nextEdge === 'bottom'
-      const percent = horizontal ? (clientX / width) * 100 : (clientY / height) * 100
+      // Keep the grabbed point under the cursor instead of centering the
+      // toolbar on it: place the center at the cursor minus the grab offset.
+      const { offsetX = 0, offsetY = 0 } = dragRef.current ?? {}
+      const centerX = clientX - offsetX
+      const centerY = clientY - offsetY
+      const percent = horizontal ? (centerX / width) * 100 : (centerY / height) * 100
       return { edge: nextEdge, position: clampPercent(nextEdge, percent) }
     }
 
