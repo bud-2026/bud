@@ -128,7 +128,10 @@ const api = {
     }
   },
   tts: {
-    speak: (text: string): Promise<void> => ipcRenderer.invoke('tts:speak', text),
+    speak: (text: string, voice?: string): Promise<void> =>
+      ipcRenderer.invoke('tts:speak', text, voice),
+    getVoice: (): Promise<string> => ipcRenderer.invoke('tts:get-voice'),
+    setVoice: (voice: string): Promise<string> => ipcRenderer.invoke('tts:set-voice', voice),
     onStart: (callback: (event: TTSStartEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: TTSStartEvent): void =>
         callback(data)

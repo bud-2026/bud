@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { describeGlobalReadiness } from '../../lib/readiness'
 import type { Readiness } from '../../lib/readiness'
+import { DEFAULT_TTS_VOICE, formatVoiceName } from '../../lib/voices'
 
 // Shared status shape for every bundled component (vision, speech, TTS). The
 // vision server reports byte progress and a `downloaded` phase; the speech
@@ -100,6 +102,22 @@ function StatusSection({
   ttsStatus
 }: StatusSectionProps): React.JSX.Element {
   const summary = describeGlobalReadiness(readiness)
+  const [ttsVoice, setTtsVoice] = useState<string>(DEFAULT_TTS_VOICE)
+
+  useEffect(() => {
+    let disposed = false
+    void window.api.tts
+      .getVoice()
+      .then((saved) => {
+        if (!disposed) setTtsVoice(saved)
+      })
+      .catch(() => {
+        // Keep the default label if the voice cannot be read.
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   return (
     <div className="question-panel">
@@ -153,7 +171,7 @@ function StatusSection({
           {ttsStatus ? (
             <ModelStatusRow
               label="Text-to-speech"
-              version="Pocket-TTS · voice jane"
+              version={`Pocket-TTS · voice ${formatVoiceName(ttsVoice)}`}
               status={ttsStatus}
             />
           ) : null}

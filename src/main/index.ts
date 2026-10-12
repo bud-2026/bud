@@ -35,6 +35,8 @@ let ttsBaseUrl: string | undefined
 const screenCaptureMaxDimension = 1920
 const packagedBackendDirectory = join(process.resourcesPath, 'python')
 const TTS_HEALTH_TIMEOUT_MS = 120_000
+// Pocket-TTS built-in voice used until the user picks another one.
+const DEFAULT_TTS_VOICE = 'jane'
 let ttsProcess: ChildProcess | undefined
 let voiceProcess: ChildProcess | undefined
 let mainWindowRef: BrowserWindow | undefined
@@ -180,6 +182,23 @@ function saveVoiceEnabled(enabled: boolean): void {
   writeFileSync(
     getAISettingsPath(),
     `${JSON.stringify({ ...readStoredSettings(), voiceEnabled: enabled }, null, 2)}\n`,
+    'utf8'
+  )
+}
+
+// The Pocket-TTS voice Bud speaks with. Remembered across restarts so the
+// choice applies to every spoken answer, not just the settings preview.
+function getTtsVoice(): string {
+  const stored = readStoredSettings()
+  return typeof stored.ttsVoice === 'string' && stored.ttsVoice.trim().length > 0
+    ? stored.ttsVoice
+    : DEFAULT_TTS_VOICE
+}
+
+function saveTtsVoice(voice: string): void {
+  writeFileSync(
+    getAISettingsPath(),
+    `${JSON.stringify({ ...readStoredSettings(), ttsVoice: voice }, null, 2)}\n`,
     'utf8'
   )
 }
@@ -1352,13 +1371,17 @@ Regardless of context, always return the exact same JSON object structure. Never
   return region ? { ...result, boxes: remapBoxesToScreen(result.boxes, region) } : result
 }
 
-async function streamTTS(text: string, webContents: Electron.WebContents): Promise<void> {
+async function streamTTS(
+  text: string,
+  webContents: Electron.WebContents,
+  voice?: string
+): Promise<void> {
   if (!ttsBaseUrl) throw new Error('TTS backend is not available')
   const requestId = randomUUID()
   const response = await fetch(`${ttsBaseUrl}/tts-stream`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ text, voice: voice ?? getTtsVoice() })
   })
 
   if (!response.ok || !response.body) {
@@ -1529,16 +1552,36 @@ app.whenReady().then(() => {
     return result
   })
 
-  ipcMain.handle('tts:speak', async (_event, text: unknown) => {
+  ipcMain.handle('tts:speak', async (_event, text: unknown, voice: unknown) => {
     if (typeof text !== 'string' || text.trim().length === 0) {
       throw new Error('TTS text must be a non-empty string')
     }
 
-    void streamTTS(text.trim(), _event.sender).catch((error: unknown) => {
+    if (voice !== undefined && (typeof voice !== 'string' || voice.trim().length === 0)) {
+      throw new Error('TTS voice must be a non-empty string')
+    }
+
+    void streamTTS(
+      text.trim(),
+      _event.sender,
+      typeof voice === 'string' ? voice.trim() : undefined
+    ).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
       _event.sender.send('tts:error', { message })
     })
+  })
+
+  ipcMain.handle('tts:get-voice', () => getTtsVoice())
+
+  ipcMain.handle('tts:set-voice', (_event, voice: unknown) => {
+    if (typeof voice !== 'string' || voice.trim().length === 0) {
+      throw new Error('TTS voice must be a non-empty string')
+    }
+
+    const trimmed = voice.trim()
+    saveTtsVoice(trimmed)
+    return trimmed
   })
 
   ipcMain.handle('voice:stop-session', () => {

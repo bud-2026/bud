@@ -89,7 +89,9 @@ declare global {
       onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
     }
     tts: {
-      speak: (text: string) => Promise<void>
+      speak: (text: string, voice?: string) => Promise<void>
+      getVoice: () => Promise<string>
+      setVoice: (voice: string) => Promise<string>
       onStart: (callback: (event: { requestId: string; sampleRate: number }) => void) => () => void
       onChunk: (callback: (event: { requestId: string; chunk: Uint8Array }) => void) => () => void
       onEnd: (callback: (requestId: string) => void) => () => void
