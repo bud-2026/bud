@@ -18,16 +18,41 @@ declare global {
     content: string
   }
 
+  /** Normalized screen region on the 1000x1000 display grid. */
+  interface Region {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+
   interface AISettings {
-    baseUrl: string
-    apiKey: string
-    modelId: string
-    classificationBaseUrl: string
-    classificationApiKey: string
-    classificationModelId: string
     generalBaseUrl: string
     generalApiKey: string
     generalModelId: string
+  }
+
+  type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
+
+  interface VlComponentStatus {
+    phase: VlPhase
+    received?: number
+    total?: number
+    detail?: string
+    message?: string
+  }
+
+  interface VlStatusSnapshot {
+    llamaVersion: string
+    llamaBackend: string
+    modelAlias: string
+    modelQuant: string
+    mmprojQuant: string
+    runtime: VlComponentStatus
+    model: VlComponentStatus
+    mmproj: VlComponentStatus
+    server: VlComponentStatus
+    port?: number
   }
 
   interface Api {
@@ -35,15 +60,19 @@ declare global {
       ask: (prompt: string, imageUrl?: string) => Promise<string>
       askQuestion: (
         prompt: string,
-        history?: ScreenConversationMessage[]
+        history?: ScreenConversationMessage[],
+        region?: Region
       ) => Promise<ScreenAIResponse>
       askScreen: (
         prompt: string,
-        history?: ScreenConversationMessage[]
+        history?: ScreenConversationMessage[],
+        region?: Region
       ) => Promise<ScreenAIResponse>
     }
     overlay: {
       setInteractive: (interactive: boolean) => void
+      setSelectMode: (active: boolean) => void
+      setDebugVisible: (visible: boolean) => void
       onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
     }
     tts: {
@@ -55,6 +84,9 @@ declare global {
     }
     voice: {
       stopSession: () => Promise<void>
+      setListenMode: (continuous: boolean) => Promise<void>
+      getEnabled: () => Promise<boolean>
+      setEnabled: (enabled: boolean) => Promise<boolean>
       onEvent: (
         callback: (event: {
           event:
@@ -71,12 +103,17 @@ declare global {
           end_session?: boolean
           message?: string
           wake_word?: string
+          auto?: boolean
         }) => void
       ) => () => void
     }
     settings: {
       getAI: () => Promise<AISettings>
       saveAI: (settings: AISettings) => Promise<AISettings>
+    }
+    vl: {
+      getStatus: () => Promise<VlStatusSnapshot>
+      onStatus: (callback: (status: VlStatusSnapshot) => void) => () => void
     }
   }
 

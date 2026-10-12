@@ -15,35 +15,38 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { findFreePort } from './freePort'
+import {
+  VL_MODEL_ALIAS,
+  ensureLocalVlmReady,
+  getLocalVlmBaseUrl,
+  getVlStatus,
+  startLocalVlm,
+  stopLocalVlm
+} from './localVlm'
 
 dotenv.config({ path: join(app.getAppPath(), '.env') })
 
-const ttsPort = 8765
-const ttsBaseUrl = `http://127.0.0.1:${ttsPort}`
+// Placeholder the OpenAI client requires; the bundled llama-server ignores it.
+const LOCAL_VLM_API_KEY = 'local'
+
+// Chosen at launch so the bundled TTS backend never clashes on a fixed port.
+let ttsBaseUrl: string | undefined
 const screenCaptureMaxDimension = 1920
 const packagedBackendDirectory = join(process.resourcesPath, 'python')
 let ttsProcess: ChildProcess | undefined
 let voiceProcess: ChildProcess | undefined
+let mainWindowRef: BrowserWindow | undefined
 
 function getAISettingsPath(): string {
   return join(app.getPath('userData'), 'ai-settings.json')
 }
 
+// Screen analysis and classification always run on the bundled Qwen3-VL
+// server; only general knowledge questions are user-configurable (Nebius API).
 function getAISettings(): AISettings {
   const defaults: AISettings = {
-    baseUrl: process.env.AI_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
-    apiKey: process.env.API_KEY ?? '',
-    modelId: process.env.MODEL_ID ?? '',
-    classificationBaseUrl:
-      process.env.CLASSIFICATION_BASE_URL ??
-      process.env.AI_BASE_URL ??
-      'https://api.tokenfactory.nebius.com/v1/',
-    classificationApiKey: process.env.CLASSIFICATION_API_KEY ?? '',
-    classificationModelId: process.env.CLASSIFICATION_MODEL_ID ?? '',
-    generalBaseUrl:
-      process.env.GENERAL_BASE_URL ??
-      process.env.AI_BASE_URL ??
-      'https://api.tokenfactory.nebius.com/v1/',
+    generalBaseUrl: process.env.GENERAL_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     generalApiKey: process.env.GENERAL_API_KEY ?? '',
     generalModelId: process.env.GENERAL_MODEL_ID ?? ''
   }
@@ -51,21 +54,6 @@ function getAISettings(): AISettings {
   try {
     const stored = JSON.parse(readFileSync(getAISettingsPath(), 'utf8')) as Partial<AISettings>
     return {
-      baseUrl: typeof stored.baseUrl === 'string' ? stored.baseUrl : defaults.baseUrl,
-      apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : defaults.apiKey,
-      modelId: typeof stored.modelId === 'string' ? stored.modelId : defaults.modelId,
-      classificationBaseUrl:
-        typeof stored.classificationBaseUrl === 'string'
-          ? stored.classificationBaseUrl
-          : defaults.classificationBaseUrl,
-      classificationApiKey:
-        typeof stored.classificationApiKey === 'string'
-          ? stored.classificationApiKey
-          : defaults.classificationApiKey,
-      classificationModelId:
-        typeof stored.classificationModelId === 'string'
-          ? stored.classificationModelId
-          : defaults.classificationModelId,
       generalBaseUrl:
         typeof stored.generalBaseUrl === 'string' ? stored.generalBaseUrl : defaults.generalBaseUrl,
       generalApiKey:
@@ -78,11 +66,77 @@ function getAISettings(): AISettings {
   }
 }
 
-function saveAISettings(settings: AISettings): void {
-  writeFileSync(getAISettingsPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
+function readStoredSettings(): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(readFileSync(getAISettingsPath(), 'utf8')) as unknown
+    if (parsed && typeof parsed === 'object') {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    // No or malformed settings file; start from an empty object.
+  }
+  return {}
 }
 
-function startTTSBackend(): void {
+// Preserves unrelated keys (such as voiceEnabled) that live in the same file.
+function saveAISettings(settings: AISettings): void {
+  writeFileSync(
+    getAISettingsPath(),
+    `${JSON.stringify({ ...readStoredSettings(), ...settings }, null, 2)}\n`,
+    'utf8'
+  )
+}
+
+// Voice activation (openwakeword + STT) is enabled by default and remembered
+// across restarts. Disabling it stops the backend process so the wake word
+// detector and speech recognizer stop consuming resources.
+function getVoiceEnabled(): boolean {
+  const stored = readStoredSettings()
+  return typeof stored.voiceEnabled === 'boolean' ? stored.voiceEnabled : true
+}
+
+function saveVoiceEnabled(enabled: boolean): void {
+  writeFileSync(
+    getAISettingsPath(),
+    `${JSON.stringify({ ...readStoredSettings(), voiceEnabled: enabled }, null, 2)}\n`,
+    'utf8'
+  )
+}
+
+// Drops settings that are no longer user-configurable now that screen analysis
+// and classification always use the bundled Qwen3-VL server.
+function migrateLegacyAISettings(): void {
+  const settingsPath = getAISettingsPath()
+  if (!existsSync(settingsPath)) return
+
+  try {
+    const stored = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>
+    let changed = false
+
+    for (const key of [
+      'baseUrl',
+      'apiKey',
+      'modelId',
+      'classificationBaseUrl',
+      'classificationApiKey',
+      'classificationModelId'
+    ]) {
+      if (key in stored) {
+        delete stored[key]
+        changed = true
+      }
+    }
+
+    if (changed) {
+      writeFileSync(settingsPath, `${JSON.stringify(stored, null, 2)}\n`, 'utf8')
+      console.log('Migrated stored AI settings for the bundled Qwen3-VL server')
+    }
+  } catch (error) {
+    console.error('Could not migrate stored AI settings:', error)
+  }
+}
+
+async function startTTSBackend(): Promise<void> {
   const isPackaged = app.isPackaged
   const backendDirectory = isPackaged
     ? join(packagedBackendDirectory, 'tts')
@@ -97,9 +151,12 @@ function startTTSBackend(): void {
     return
   }
 
+  const port = await findFreePort()
+  ttsBaseUrl = `http://127.0.0.1:${port}`
+
   ttsProcess = spawn(
     pythonExecutable,
-    isPackaged ? ['--port', String(ttsPort)] : [backendScript, '--port', String(ttsPort)],
+    isPackaged ? ['--port', String(port)] : [backendScript, '--port', String(port)],
     {
       cwd: backendDirectory,
       env: {
@@ -114,17 +171,21 @@ function startTTSBackend(): void {
   ttsProcess.on('exit', (code, signal) => {
     console.log(`TTS backend exited (code=${code}, signal=${signal ?? 'none'})`)
     ttsProcess = undefined
+    ttsBaseUrl = undefined
   })
 }
 
 function stopTTSBackend(): void {
   if (ttsProcess && !ttsProcess.killed) {
     ttsProcess.kill()
-    ttsProcess = undefined
   }
+  ttsProcess = undefined
+  ttsBaseUrl = undefined
 }
 
 function startVoiceBackend(mainWindow: BrowserWindow): void {
+  if (voiceProcess) return
+
   const isPackaged = app.isPackaged
   const backendDirectory = isPackaged
     ? join(packagedBackendDirectory, 'stt')
@@ -139,7 +200,7 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
     return
   }
 
-  voiceProcess = spawn(pythonExecutable, [backendScript], {
+  const child = spawn(pythonExecutable, [backendScript], {
     cwd: backendDirectory,
     env: {
       ...process.env,
@@ -148,9 +209,10 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
     stdio: ['pipe', 'pipe', 'inherit'],
     windowsHide: true
   })
+  voiceProcess = child
 
   let pending = ''
-  voiceProcess.stdout?.on('data', (chunk: Buffer) => {
+  child.stdout?.on('data', (chunk: Buffer) => {
     pending += chunk.toString()
     const lines = pending.split(/\r?\n/)
     pending = lines.pop() ?? ''
@@ -163,29 +225,40 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
       }
     }
   })
-  voiceProcess.on('error', (error) => {
+  child.on('error', (error) => {
     console.error('Voice backend failed to start:', error)
     mainWindow.webContents.send('voice:event', {
       event: 'error',
       message: error.message
     })
   })
-  voiceProcess.on('exit', (code, signal) => {
+  child.on('exit', (code, signal) => {
     console.log(`Voice backend exited (code=${code}, signal=${signal ?? 'none'})`)
-    voiceProcess = undefined
+    // Only clear the shared reference if it still points at this process, so a
+    // rapid off/on toggle cannot let the old process clobber the new one.
+    if (voiceProcess === child) voiceProcess = undefined
   })
 }
 
 function stopVoiceBackend(): void {
-  if (voiceProcess && !voiceProcess.killed) {
-    voiceProcess.kill()
-    voiceProcess = undefined
+  const child = voiceProcess
+  voiceProcess = undefined
+  if (child && !child.killed) {
+    child.kill()
   }
 }
 
 function stopVoiceSession(): void {
   if (voiceProcess?.stdin?.writable) {
     voiceProcess.stdin.write('{"command":"stop_session"}\n')
+  }
+}
+
+function setVoiceListenMode(continuous: boolean): void {
+  if (voiceProcess?.stdin?.writable) {
+    voiceProcess.stdin.write(
+      `${JSON.stringify({ command: 'set_mode', mode: continuous ? 'continuous' : 'wake' })}\n`
+    )
   }
 }
 
@@ -212,16 +285,21 @@ function createWindow(): void {
 
   // Keep the overlay visible locally without including it in supported screen captures.
   mainWindow.setContentProtection(true)
+  mainWindowRef = mainWindow
 
   // Use the highest Electron stacking level so the overlay remains above
   // fullscreen applications and regular always-on-top windows.
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
-  let debugVisible = false
-  const setDebugVisible = (visible: boolean): void => {
-    debugVisible = visible
-    mainWindow.setIgnoreMouseEvents(!visible, { forward: true })
+  // Start click-through. The renderer promotes the window to interactive while
+  // the pointer is over the toolbar, panel, or ask bar, and never forces it back
+  // itself, so a click is not immediately followed by a pass-through window.
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
 
+  let selectMode = false
+  const setDebugVisible = (visible: boolean): void => {
+    // Showing or hiding the panel must not change mouse interactivity; that is
+    // owned entirely by the renderer's hover tracking.
     if (visible) {
       mainWindow.show()
       mainWindow.focus()
@@ -233,18 +311,41 @@ function createWindow(): void {
   }
 
   ipcMain.on('overlay:set-interactive', (event, interactive: unknown) => {
-    if (
-      event.sender !== mainWindow.webContents ||
-      debugVisible ||
-      typeof interactive !== 'boolean'
-    ) {
+    // Region selection forces interactivity on, so hover-driven updates are
+    // ignored while it is active.
+    if (event.sender !== mainWindow.webContents || selectMode || typeof interactive !== 'boolean') {
       return
     }
     mainWindow.setIgnoreMouseEvents(!interactive, { forward: true })
   })
 
+  // Region selection needs the overlay to capture mouse input even while the
+  // debug panel is hidden and the window would otherwise be click-through.
+  ipcMain.on('overlay:set-select-mode', (event, active: unknown) => {
+    if (event.sender !== mainWindow.webContents || typeof active !== 'boolean') {
+      return
+    }
+    selectMode = active
+    if (active) {
+      mainWindow.setIgnoreMouseEvents(false)
+      mainWindow.show()
+      mainWindow.focus()
+    } else {
+      mainWindow.setIgnoreMouseEvents(true, { forward: true })
+    }
+  })
+
+  // Lets the always-visible toolbar open/close the settings panel without
+  // relying on the Ctrl+Shift+Space global shortcut.
+  ipcMain.on('overlay:set-debug-visible', (event, visible: unknown) => {
+    if (event.sender !== mainWindow.webContents || typeof visible !== 'boolean') {
+      return
+    }
+    setDebugVisible(visible)
+  })
+
   mainWindow.on('ready-to-show', () => {
-    setDebugVisible(false)
+    setDebugVisible(true)
     mainWindow.show()
   })
 
@@ -261,7 +362,7 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  let isDebugVisible = false
+  let isDebugVisible = true
   const toggleDebugVisibility = (): void => {
     isDebugVisible = !isDebugVisible
     setDebugVisible(isDebugVisible)
@@ -273,6 +374,7 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     globalShortcut.unregister('CommandOrControl+Shift+Space')
+    mainWindowRef = undefined
   })
 }
 
@@ -281,22 +383,31 @@ interface AIRequest {
   imageUrl?: string
 }
 
-interface AISettings {
+interface AIClientSettings {
   baseUrl: string
   apiKey: string
   modelId: string
-  classificationBaseUrl: string
-  classificationApiKey: string
-  classificationModelId: string
+}
+
+interface AISettings {
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
+  voiceEnabled?: boolean
 }
 
 interface BoundingBox {
   bbox: [number, number, number, number]
   label?: string
   copy?: string
+}
+
+/** Normalized screen region on the 1000x1000 display grid. */
+interface Region {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 interface ScreenAIResponse {
@@ -529,28 +640,68 @@ function parseScreenResponse(content: string): ScreenAIResponse {
   }
 }
 
-function getDedicatedAISettings(prefix: 'CLASSIFICATION' | 'GENERAL'): AISettings {
+// Validates an optional screen region from the renderer. Regions use the same
+// 0-1000 normalized grid as bounding boxes, relative to the full display.
+function parseRegion(value: unknown): Region | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+
+  if (typeof value !== 'object') {
+    throw new Error('Screen region must be an object')
+  }
+
+  const record = value as Record<string, unknown>
+  const coordinates: Array<keyof Region> = ['x', 'y', 'width', 'height']
+
+  for (const key of coordinates) {
+    if (typeof record[key] !== 'number' || !Number.isFinite(record[key])) {
+      throw new Error(`Screen region ${key} must be a finite number`)
+    }
+  }
+
+  const region: Region = {
+    x: record.x as number,
+    y: record.y as number,
+    width: record.width as number,
+    height: record.height as number
+  }
+
+  if (
+    region.x < 0 ||
+    region.y < 0 ||
+    region.width <= 0 ||
+    region.height <= 0 ||
+    region.x + region.width > 1000 ||
+    region.y + region.height > 1000
+  ) {
+    throw new Error('Screen region must be within the 0-1000 display grid')
+  }
+
+  return region
+}
+
+function getGeneralAISettings(): AIClientSettings {
   const settings = getAISettings()
-  const isClassification = prefix === 'CLASSIFICATION'
   return {
-    baseUrl: isClassification ? settings.classificationBaseUrl : settings.generalBaseUrl,
-    apiKey: isClassification ? settings.classificationApiKey : settings.generalApiKey,
-    modelId: isClassification ? settings.classificationModelId : settings.generalModelId,
-    classificationBaseUrl: '',
-    classificationApiKey: '',
-    classificationModelId: '',
-    generalBaseUrl: '',
-    generalApiKey: '',
-    generalModelId: ''
+    baseUrl: settings.generalBaseUrl,
+    apiKey: settings.generalApiKey,
+    modelId: settings.generalModelId
   }
 }
 
-function createAIClient(
-  settings: AISettings,
-  provider: 'classification' | 'general'
-): { client: OpenAI; model: string } {
-  if (!settings.apiKey) throw new Error(`${provider} API key is not configured`)
-  if (!settings.modelId) throw new Error(`${provider} model ID is not configured`)
+// The bundled Qwen3-VL server always uses a fixed alias and placeholder key;
+// only its base URL varies (the free port chosen at launch).
+function createLocalVlmClient(): { client: OpenAI; model: string } {
+  return {
+    client: new OpenAI({ baseURL: getLocalVlmBaseUrl(), apiKey: LOCAL_VLM_API_KEY }),
+    model: VL_MODEL_ALIAS
+  }
+}
+
+function createGeneralClient(settings: AIClientSettings): { client: OpenAI; model: string } {
+  if (!settings.apiKey) throw new Error('general API key is not configured')
+  if (!settings.modelId) throw new Error('general model ID is not configured')
   return {
     client: new OpenAI({ baseURL: settings.baseUrl, apiKey: settings.apiKey }),
     model: settings.modelId
@@ -561,10 +712,8 @@ async function classifyQuestion(
   prompt: string,
   history: ScreenConversationMessage[]
 ): Promise<QuestionType> {
-  const { client, model } = createAIClient(
-    getDedicatedAISettings('CLASSIFICATION'),
-    'classification'
-  )
+  await ensureLocalVlmReady()
+  const { client, model } = createLocalVlmClient()
 
   const response = await client.chat.completions.create({
     model,
@@ -618,25 +767,11 @@ Regardless of context, always return the exact same JSON object structure. Never
 }
 
 async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
-  const settings = getAISettings()
-  const apiKey = settings.apiKey
-  const model = settings.modelId
+  await ensureLocalVlmReady()
+  const { client, model } = createLocalVlmClient()
 
-  if (!apiKey) {
-    throw new Error('API_KEY is not configured')
-  }
-
-  if (!model) {
-    throw new Error('MODEL_ID is not configured')
-  }
-
-  const client = new OpenAI({
-    baseURL: settings.baseUrl,
-    apiKey
-  })
   const response = await client.chat.completions.create({
     model,
-    reasoning_effort: 'none',
     messages: [
       {
         role: 'system',
@@ -676,11 +811,13 @@ async function askGeneral(
   prompt: string,
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
-  const { client, model } = createAIClient(getDedicatedAISettings('GENERAL'), 'general')
+  const settings = getGeneralAISettings()
+  const { client, model } = createGeneralClient(settings)
 
   const response = await client.chat.completions.create({
     model,
-    reasoning_effort: 'none',
+    // reasoning_effort only applies to hosted reasoning models.
+    reasoning_effort: 'none' as const,
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -727,13 +864,16 @@ Regardless of context, always return the exact same JSON object structure. Never
 
 async function askQuestion(
   prompt: string,
-  history: ScreenConversationMessage[] = []
+  history: ScreenConversationMessage[] = [],
+  region?: Region
 ): Promise<ScreenAIResponse> {
   const questionType = await classifyQuestion(prompt, history)
-  return questionType === 'screen' ? askAboutScreen(prompt, history) : askGeneral(prompt, history)
+  return questionType === 'screen'
+    ? askAboutScreen(prompt, history, region)
+    : askGeneral(prompt, history)
 }
 
-async function capturePrimaryScreen(): Promise<string> {
+async function capturePrimaryScreen(region?: Region): Promise<string> {
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.size
   const maxDimension =
@@ -756,30 +896,55 @@ async function capturePrimaryScreen(): Promise<string> {
     throw new Error('Could not capture the primary screen')
   }
 
-  return source.thumbnail.toDataURL()
+  if (!region) {
+    return source.thumbnail.toDataURL()
+  }
+
+  const { width: imageWidth, height: imageHeight } = source.thumbnail.getSize()
+  const rawX = Math.round((region.x / 1000) * imageWidth)
+  const rawY = Math.round((region.y / 1000) * imageHeight)
+  const cropX = Math.max(0, Math.min(rawX, imageWidth - 1))
+  const cropY = Math.max(0, Math.min(rawY, imageHeight - 1))
+  const cropWidth = Math.max(
+    1,
+    Math.min(Math.round((region.width / 1000) * imageWidth), imageWidth - cropX)
+  )
+  const cropHeight = Math.max(
+    1,
+    Math.min(Math.round((region.height / 1000) * imageHeight), imageHeight - cropY)
+  )
+
+  return source.thumbnail
+    .crop({ x: cropX, y: cropY, width: cropWidth, height: cropHeight })
+    .toDataURL()
+}
+
+// The vision model returns boxes relative to the cropped image it was given.
+// Translate them back onto the full-screen 0-1000 grid so the overlay lands
+// the indicators in the right place.
+function remapBoxesToScreen(boxes: BoundingBox[], region: Region): BoundingBox[] {
+  const mapX = (value: number): number =>
+    Math.min(1000, Math.max(0, Math.round(region.x + (value / 1000) * region.width)))
+  const mapY = (value: number): number =>
+    Math.min(1000, Math.max(0, Math.round(region.y + (value / 1000) * region.height)))
+
+  return boxes.map((box) => {
+    const [xmin, ymin, xmax, ymax] = box.bbox
+    return { ...box, bbox: [mapX(xmin), mapY(ymin), mapX(xmax), mapY(ymax)] }
+  })
 }
 
 async function askAboutScreen(
   prompt: string,
-  history: ScreenConversationMessage[] = []
+  history: ScreenConversationMessage[] = [],
+  region?: Region
 ): Promise<ScreenAIResponse> {
-  const imageUrl = await capturePrimaryScreen()
-  const settings = getAISettings()
-  const apiKey = settings.apiKey
-  const model = settings.modelId
-
-  if (!apiKey || !model) {
-    throw new Error('API_KEY and MODEL_ID must be configured')
-  }
-
-  const client = new OpenAI({
-    baseURL: settings.baseUrl,
-    apiKey
-  })
+  await ensureLocalVlmReady()
+  const imageUrl = await capturePrimaryScreen(region)
+  const { client, model } = createLocalVlmClient()
 
   const response = await client.chat.completions.create({
     model,
-    reasoning_effort: 'none',
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -858,10 +1023,12 @@ Regardless of context, always return the exact same JSON object structure. Never
     throw new Error('The AI returned an empty screen analysis response')
   }
 
-  return parseScreenResponse(content)
+  const result = parseScreenResponse(content)
+  return region ? { ...result, boxes: remapBoxesToScreen(result.boxes, region) } : result
 }
 
 async function streamTTS(text: string, webContents: Electron.WebContents): Promise<void> {
+  if (!ttsBaseUrl) throw new Error('TTS backend is not available')
   const requestId = randomUUID()
   const response = await fetch(`${ttsBaseUrl}/tts-stream`, {
     method: 'POST',
@@ -903,7 +1070,9 @@ async function streamTTS(text: string, webContents: Electron.WebContents): Promi
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  startTTSBackend()
+  migrateLegacyAISettings()
+  void startTTSBackend()
+  startLocalVlm()
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -978,7 +1147,11 @@ app.whenReady().then(() => {
       throw new Error('Screen analysis history must contain valid messages')
     }
 
-    const result = await askAboutScreen(request.prompt, history)
+    const result = await askAboutScreen(
+      request.prompt,
+      history,
+      parseRegion('region' in request ? request.region : undefined)
+    )
     void streamTTS(result.text, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
@@ -1015,7 +1188,11 @@ app.whenReady().then(() => {
       throw new Error('Question history must contain valid messages')
     }
 
-    const result = await askQuestion(request.prompt, history)
+    const result = await askQuestion(
+      request.prompt,
+      history,
+      parseRegion('region' in request ? request.region : undefined)
+    )
     void streamTTS(result.text, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
@@ -1040,30 +1217,41 @@ app.whenReady().then(() => {
     stopVoiceSession()
   })
 
+  ipcMain.handle('voice:get-enabled', () => getVoiceEnabled())
+
+  ipcMain.handle('voice:set-enabled', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') {
+      throw new Error('Voice enabled must be a boolean')
+    }
+
+    saveVoiceEnabled(enabled)
+
+    if (enabled) {
+      const mainWindow = mainWindowRef ?? BrowserWindow.getAllWindows()[0]
+      if (mainWindow) startVoiceBackend(mainWindow)
+    } else {
+      stopVoiceSession()
+      stopVoiceBackend()
+    }
+
+    return enabled
+  })
+
+  ipcMain.handle('voice:set-listen-mode', (_event, continuous: unknown) => {
+    if (typeof continuous !== 'boolean') {
+      throw new Error('Voice listen mode must be a boolean')
+    }
+    setVoiceListenMode(continuous)
+  })
+
   ipcMain.handle('settings:get-ai', () => getAISettings())
+
+  ipcMain.handle('vl:get-status', () => getVlStatus())
 
   ipcMain.handle('settings:save-ai', (_event, settings: unknown) => {
     if (
       typeof settings !== 'object' ||
       settings === null ||
-      !('baseUrl' in settings) ||
-      typeof settings.baseUrl !== 'string' ||
-      !settings.baseUrl.trim() ||
-      !('apiKey' in settings) ||
-      typeof settings.apiKey !== 'string' ||
-      !settings.apiKey.trim() ||
-      !('modelId' in settings) ||
-      typeof settings.modelId !== 'string' ||
-      !settings.modelId.trim() ||
-      !('classificationBaseUrl' in settings) ||
-      typeof settings.classificationBaseUrl !== 'string' ||
-      !settings.classificationBaseUrl.trim() ||
-      !('classificationApiKey' in settings) ||
-      typeof settings.classificationApiKey !== 'string' ||
-      !settings.classificationApiKey.trim() ||
-      !('classificationModelId' in settings) ||
-      typeof settings.classificationModelId !== 'string' ||
-      !settings.classificationModelId.trim() ||
       !('generalBaseUrl' in settings) ||
       typeof settings.generalBaseUrl !== 'string' ||
       !settings.generalBaseUrl.trim() ||
@@ -1077,28 +1265,16 @@ app.whenReady().then(() => {
       throw new Error('AI settings require a base URL, API key, and model ID')
     }
 
-    for (const baseUrlValue of [
-      settings.baseUrl,
-      settings.classificationBaseUrl,
-      settings.generalBaseUrl
-    ]) {
-      try {
-        const baseUrl = new URL(baseUrlValue)
-        if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
-          throw new Error('unsupported protocol')
-        }
-      } catch {
-        throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
+    try {
+      const baseUrl = new URL(settings.generalBaseUrl)
+      if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
+        throw new Error('unsupported protocol')
       }
+    } catch {
+      throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
     }
 
     const savedSettings = {
-      baseUrl: settings.baseUrl.trim(),
-      apiKey: settings.apiKey.trim(),
-      modelId: settings.modelId.trim(),
-      classificationBaseUrl: settings.classificationBaseUrl.trim(),
-      classificationApiKey: settings.classificationApiKey.trim(),
-      classificationModelId: settings.classificationModelId.trim(),
       generalBaseUrl: settings.generalBaseUrl.trim(),
       generalApiKey: settings.generalApiKey.trim(),
       generalModelId: settings.generalModelId.trim()
@@ -1108,9 +1284,13 @@ app.whenReady().then(() => {
   })
 
   createWindow()
-  const mainWindow = BrowserWindow.getAllWindows()[0]
+  const mainWindow = mainWindowRef ?? BrowserWindow.getAllWindows()[0]
   if (mainWindow) {
-    mainWindow.webContents.once('did-finish-load', () => startVoiceBackend(mainWindow))
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (getVoiceEnabled()) {
+        startVoiceBackend(mainWindow)
+      }
+    })
   }
 
   app.on('activate', function () {
@@ -1133,4 +1313,5 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopTTSBackend()
   stopVoiceBackend()
+  stopLocalVlm()
 })

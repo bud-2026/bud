@@ -41,3 +41,6 @@ if (Test-Path $customModel) {
   New-Item -ItemType Directory -Path (Join-Path $staging 'stt\models') -Force | Out-Null
   Copy-Item $customModel (Join-Path $staging 'stt\models\hey_bud.onnx')
 }
+
+# Bundle llama.cpp (CUDA build) so the app can serve Qwen3-VL without LM Studio.
+& (Join-Path $PSScriptRoot 'prepare-vl.ps1')

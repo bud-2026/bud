@@ -9,18 +9,20 @@ interface ScreenAIResponse {
   }>
 }
 
+/** Normalized screen region on the 1000x1000 display grid. */
+interface Region {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 interface ScreenConversationMessage {
   role: 'user' | 'assistant'
   content: string
 }
 
 interface AISettings {
-  baseUrl: string
-  apiKey: string
-  modelId: string
-  classificationBaseUrl: string
-  classificationApiKey: string
-  classificationModelId: string
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
@@ -51,6 +53,30 @@ interface VoiceEvent {
   end_session?: boolean
   message?: string
   wake_word?: string
+  auto?: boolean
+}
+
+type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
+
+interface VlComponentStatus {
+  phase: VlPhase
+  received?: number
+  total?: number
+  detail?: string
+  message?: string
+}
+
+interface VlStatusSnapshot {
+  llamaVersion: string
+  llamaBackend: string
+  modelAlias: string
+  modelQuant: string
+  mmprojQuant: string
+  runtime: VlComponentStatus
+  model: VlComponentStatus
+  mmproj: VlComponentStatus
+  server: VlComponentStatus
+  port?: number
 }
 
 // Custom APIs for renderer
@@ -60,14 +86,25 @@ const api = {
       ipcRenderer.invoke('ai:ask', { prompt, imageUrl }),
     askQuestion: (
       prompt: string,
-      history?: ScreenConversationMessage[]
-    ): Promise<ScreenAIResponse> => ipcRenderer.invoke('ai:ask-question', { prompt, history }),
-    askScreen: (prompt: string, history?: ScreenConversationMessage[]): Promise<ScreenAIResponse> =>
-      ipcRenderer.invoke('ai:ask-screen', { prompt, history })
+      history?: ScreenConversationMessage[],
+      region?: Region
+    ): Promise<ScreenAIResponse> =>
+      ipcRenderer.invoke('ai:ask-question', { prompt, history, region }),
+    askScreen: (
+      prompt: string,
+      history?: ScreenConversationMessage[],
+      region?: Region
+    ): Promise<ScreenAIResponse> => ipcRenderer.invoke('ai:ask-screen', { prompt, history, region })
   },
   overlay: {
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send('overlay:set-interactive', interactive)
+    },
+    setSelectMode: (active: boolean): void => {
+      ipcRenderer.send('overlay:set-select-mode', active)
+    },
+    setDebugVisible: (visible: boolean): void => {
+      ipcRenderer.send('overlay:set-debug-visible', visible)
     },
     onDebugVisibilityChanged: (callback: (visible: boolean) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => {
@@ -106,10 +143,24 @@ const api = {
   },
   voice: {
     stopSession: (): Promise<void> => ipcRenderer.invoke('voice:stop-session'),
+    setListenMode: (continuous: boolean): Promise<void> =>
+      ipcRenderer.invoke('voice:set-listen-mode', continuous),
+    getEnabled: (): Promise<boolean> => ipcRenderer.invoke('voice:get-enabled'),
+    setEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('voice:set-enabled', enabled),
     onEvent: (callback: (event: VoiceEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: VoiceEvent): void => callback(data)
       ipcRenderer.on('voice:event', listener)
       return () => ipcRenderer.removeListener('voice:event', listener)
+    }
+  },
+  vl: {
+    getStatus: (): Promise<VlStatusSnapshot> => ipcRenderer.invoke('vl:get-status'),
+    onStatus: (callback: (status: VlStatusSnapshot) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: VlStatusSnapshot): void =>
+        callback(data)
+      ipcRenderer.on('vl:status', listener)
+      return () => ipcRenderer.removeListener('vl:status', listener)
     }
   },
   settings: {
