@@ -295,29 +295,6 @@ function SettingsPanel({
             <h1 className="debug-panel__title">
               {section === null ? 'Settings' : SECTION_LABELS[section]}
             </h1>
-            <button
-              type="button"
-              className="settings-header__guide"
-              onClick={onOpenGuide}
-              aria-label="Open getting started guide"
-              title="Getting started guide"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-            </button>
           </div>
           <span className="keybind-label">Ctrl+Shift+Space to toggle panel</span>
         </header>
@@ -356,6 +333,29 @@ function SettingsPanel({
 
         {error && <p className="question-panel__error">{error}</p>}
       </div>
+      <button
+        type="button"
+        className="settings-header__guide"
+        onClick={onOpenGuide}
+        aria-label="Open getting started guide"
+        title="Getting started guide"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      </button>
       <button
         type="button"
         className="debug-panel__close"

@@ -72,7 +72,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-right: 44px;
+  padding-right: 100px;
 }
 
 .settings-header__back {
@@ -101,13 +101,16 @@
 }
 
 .settings-header__guide {
+  position: absolute;
+  top: 18px;
+  right: 60px;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
   width: 34px;
   height: 34px;
-  margin-left: auto;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 50%;
   padding: 0;
