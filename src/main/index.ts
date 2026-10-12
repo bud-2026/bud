@@ -1459,6 +1459,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('tts:get-status', () => ttsStatus)
 
+  ipcMain.handle('app:quit', () => {
+    app.quit()
+  })
+
   ipcMain.handle('settings:save-ai', (_event, settings: unknown) => {
     if (
       typeof settings !== 'object' ||

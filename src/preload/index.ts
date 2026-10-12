@@ -196,6 +196,9 @@ const api = {
     getAI: (): Promise<AISettings> => ipcRenderer.invoke('settings:get-ai'),
     saveAI: (settings: AISettings): Promise<AISettings> =>
       ipcRenderer.invoke('settings:save-ai', settings)
+  },
+  app: {
+    quit: (): Promise<void> => ipcRenderer.invoke('app:quit')
   }
 }
 

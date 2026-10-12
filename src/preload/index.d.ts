@@ -134,6 +134,9 @@ declare global {
       getStatus: () => Promise<SttStatusSnapshot>
       onStatus: (callback: (status: SttStatusSnapshot) => void) => () => void
     }
+    app: {
+      quit: () => Promise<void>
+    }
   }
 
   interface Window {

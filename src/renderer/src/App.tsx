@@ -314,6 +314,10 @@ function App(): React.JSX.Element {
     window.api.overlay.setDebugVisible(false)
   }, [])
 
+  const quitApp = useCallback((): void => {
+    void window.api.app.quit()
+  }, [])
+
   const toggleVoice = useCallback((): void => {
     const next = !voiceEnabledRef.current
     voiceEnabledRef.current = next
@@ -1002,6 +1006,19 @@ function App(): React.JSX.Element {
             </div>
           </form>
           {error && <p className="question-panel__error">{error}</p>}
+          <div className="question-panel">
+            <h2 className="question-panel__title">Application</h2>
+            <div className="question-panel__controls">
+              <button
+                type="button"
+                className="question-panel__quit"
+                onClick={quitApp}
+                title="Close Bud"
+              >
+                Quit Bud
+              </button>
+            </div>
+          </div>
         </div>
         <button
           type="button"

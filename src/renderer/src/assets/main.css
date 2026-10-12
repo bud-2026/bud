@@ -787,6 +787,16 @@ body {
   opacity: 0.55;
 }
 
+.question-panel button.question-panel__quit {
+  color: #ffd9d9;
+  background: rgba(255, 107, 107, 0.22);
+  border: 1px solid rgba(255, 135, 135, 0.55);
+}
+
+.question-panel button.question-panel__quit:hover {
+  background: rgba(255, 107, 107, 0.34);
+}
+
 .question-panel__response,
 .question-panel__error {
   margin-top: 10px;
