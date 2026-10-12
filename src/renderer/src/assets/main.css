@@ -526,6 +526,26 @@ body {
   margin-bottom: 8px;
 }
 
+.question-panel .voice-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.question-panel .voice-toggle input[type='checkbox'] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: #63e6be;
+  cursor: pointer;
+}
+
 .question-panel__shortcut {
   float: right;
   color: rgba(255, 255, 255, 0.5);

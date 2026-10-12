@@ -85,6 +85,8 @@ declare global {
     voice: {
       stopSession: () => Promise<void>
       setListenMode: (continuous: boolean) => Promise<void>
+      getEnabled: () => Promise<boolean>
+      setEnabled: (enabled: boolean) => Promise<boolean>
       onEvent: (
         callback: (event: {
           event:

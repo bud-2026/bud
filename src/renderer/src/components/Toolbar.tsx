@@ -16,8 +16,12 @@ interface ToolbarProps {
   isPanelOpen: boolean
   isSelecting: boolean
   hasRegion: boolean
+  isVoiceEnabled: boolean
+  isAsking: boolean
   onTogglePanel: () => void
   onSelectArea: () => void
+  onToggleVoice: () => void
+  onOpenAsk: () => void
   onMove: (edge: ToolbarEdge, position: number) => void
   onDraggingChange: (dragging: boolean) => void
 }
@@ -29,8 +33,12 @@ function Toolbar({
   isPanelOpen,
   isSelecting,
   hasRegion,
+  isVoiceEnabled,
+  isAsking,
   onTogglePanel,
   onSelectArea,
+  onToggleVoice,
+  onOpenAsk,
   onMove,
   onDraggingChange
 }: ToolbarProps): React.JSX.Element {
@@ -179,6 +187,58 @@ function Toolbar({
             <line x1="12" y1="9" x2="12" y2="15" />
           </svg>
           {hasRegion && <span className="toolbar__badge" aria-hidden="true" />}
+        </button>
+        <button
+          type="button"
+          className={`toolbar__btn${
+            isVoiceEnabled ? ' toolbar__btn--active' : ' toolbar__btn--muted'
+          }`}
+          onClick={onToggleVoice}
+          aria-label={isVoiceEnabled ? 'Turn off voice activation' : 'Turn on voice activation'}
+          aria-pressed={isVoiceEnabled}
+          title={isVoiceEnabled ? 'Voice activation on' : 'Voice activation off'}
+        >
+          <svg
+            className="toolbar__icon"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            {!isVoiceEnabled && <line x1="3" y1="3" x2="21" y2="21" />}
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={`toolbar__btn${isAsking ? ' toolbar__btn--active' : ''}`}
+          onClick={onOpenAsk}
+          aria-label="Type a question"
+          aria-pressed={isAsking}
+          title="Type a question"
+        >
+          <svg
+            className="toolbar__icon"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="2" y="5" width="20" height="14" rx="2" />
+            <path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M8 13h8" />
+          </svg>
         </button>
       </div>
     </div>

@@ -145,6 +145,9 @@ const api = {
     stopSession: (): Promise<void> => ipcRenderer.invoke('voice:stop-session'),
     setListenMode: (continuous: boolean): Promise<void> =>
       ipcRenderer.invoke('voice:set-listen-mode', continuous),
+    getEnabled: (): Promise<boolean> => ipcRenderer.invoke('voice:get-enabled'),
+    setEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('voice:set-enabled', enabled),
     onEvent: (callback: (event: VoiceEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: VoiceEvent): void => callback(data)
       ipcRenderer.on('voice:event', listener)

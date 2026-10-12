@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import AskBar from './components/AskBar'
 import Indicator from './components/Indicator'
 import RegionSelector from './components/RegionSelector'
 import Toolbar, { type ToolbarEdge } from './components/Toolbar'
@@ -138,11 +139,15 @@ function App(): React.JSX.Element {
   const [region, setRegion] = useState<Region | null>(null)
   const [isSelecting, setIsSelecting] = useState(false)
   const [isAutoListen, setIsAutoListen] = useState(false)
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true)
+  const [isAskOpen, setIsAskOpen] = useState(false)
+  const [askValue, setAskValue] = useState('')
   const [toolbar, setToolbar] = useState<ToolbarState>(readStoredToolbarState)
   const [isToolbarVisible, setIsToolbarVisible] = useState(false)
   const voiceOrbStateRef = useRef(voiceOrbState)
   const regionRef = useRef<Region | null>(null)
   const autoListenRef = useRef(false)
+  const voiceEnabledRef = useRef(true)
   const toolbarRef = useRef<ToolbarState>(toolbar)
   const toolbarElementRef = useRef<HTMLElement | null>(null)
   const isToolbarVisibleRef = useRef(false)
@@ -178,7 +183,7 @@ function App(): React.JSX.Element {
   const resetVoiceInactivityTimer = useCallback((): void => {
     if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
     voiceInactivityTimerRef.current = setTimeout(() => {
-      if (autoListenRef.current) return
+      if (autoListenRef.current || !voiceEnabledRef.current) return
       voiceSessionActiveRef.current = false
       voiceSessionEndedRef.current = true
       void window.api.voice.stopSession().catch((error: unknown) => {
@@ -203,6 +208,7 @@ function App(): React.JSX.Element {
   }
 
   const startAutoListen = useCallback((): void => {
+    if (!voiceEnabledRef.current) return
     setIsAutoListen(true)
     autoListenRef.current = true
     voiceSessionEndedRef.current = false
@@ -235,8 +241,12 @@ function App(): React.JSX.Element {
       regionRef.current = nextRegion
       setIsSelecting(false)
       window.api.overlay.setSelectMode(false)
-      startAutoListen()
-      setVoiceStatus('Auto-listening in selected area · Esc to stop')
+      if (voiceEnabledRef.current) {
+        startAutoListen()
+        setVoiceStatus('Auto-listening in selected area · Esc to stop')
+      } else {
+        setVoiceStatus('Area selected · type a question to analyze it')
+      }
     },
     [startAutoListen]
   )
@@ -250,6 +260,12 @@ function App(): React.JSX.Element {
   }, [startAutoListen])
 
   const handleRegionControlClick = useCallback((): void => {
+    // Without voice there is nothing to start/stop listening to, so the control
+    // always (re)opens region selection for typed questions instead.
+    if (!voiceEnabledRef.current) {
+      startRegionSelection()
+      return
+    }
     if (regionRef.current && autoListenRef.current) {
       stopAutoListen()
       return
@@ -274,6 +290,43 @@ function App(): React.JSX.Element {
     window.api.overlay.setDebugVisible(!isDebugOpen)
   }, [isDebugOpen])
 
+  const toggleVoice = useCallback((): void => {
+    const next = !voiceEnabledRef.current
+    voiceEnabledRef.current = next
+    setIsVoiceEnabled(next)
+
+    if (!next) {
+      // Tearing down the backend also ends any active or continuous session,
+      // so reset the listener state locally instead of messaging a dying process.
+      setIsAutoListen(false)
+      autoListenRef.current = false
+      voiceSessionActiveRef.current = false
+      voiceSessionEndedRef.current = true
+      clearVoiceInactivityTimer()
+      hideOrbWithAnimation()
+      setVoiceTranscript('')
+      setVoiceStatus('Voice disabled')
+    } else {
+      setVoiceStatus('Starting voice listener...')
+    }
+
+    void window.api.voice.setEnabled(next).catch((error: unknown) => {
+      // Roll the UI back so it always reflects the backend state.
+      voiceEnabledRef.current = !next
+      setIsVoiceEnabled(!next)
+      setError(error instanceof Error ? error.message : 'Could not change voice activation')
+    })
+  }, [clearVoiceInactivityTimer, hideOrbWithAnimation])
+
+  const openAskBar = useCallback((): void => {
+    setIsAskOpen(true)
+  }, [])
+
+  const closeAskBar = useCallback((): void => {
+    setIsAskOpen(false)
+    setAskValue('')
+  }, [])
+
   const handleToolbarMove = useCallback((edge: ToolbarEdge, position: number): void => {
     const next = { edge, position }
     toolbarRef.current = next
@@ -287,12 +340,16 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      if (isAskOpen) {
+        closeAskBar()
+        return
+      }
       if (isSelecting) return
       clearRegion()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isSelecting, clearRegion])
+  }, [isAskOpen, closeAskBar, isSelecting, clearRegion])
 
   const audioContextRef = useRef<AudioContext | null>(null)
   const nextAudioTimeRef = useRef<number>(0)
@@ -355,7 +412,8 @@ function App(): React.JSX.Element {
       const nextInteractive =
         isToolbarDraggingRef.current ||
         Boolean(
-          event.target instanceof Element && event.target.closest('.toolbar, .indicator__copy-btn')
+          event.target instanceof Element &&
+          event.target.closest('.toolbar, .indicator__copy-btn, .ask-bar')
         )
       if (nextInteractive === interactive) return
       interactive = nextInteractive
@@ -391,6 +449,23 @@ function App(): React.JSX.Element {
   }, [])
   useEffect(() => {
     let disposed = false
+    void window.api.voice
+      .getEnabled()
+      .then((enabled) => {
+        if (disposed) return
+        voiceEnabledRef.current = enabled
+        setIsVoiceEnabled(enabled)
+        setVoiceStatus(enabled ? 'Starting voice listener...' : 'Voice disabled')
+      })
+      .catch(() => {
+        // Defaults to enabled; live state still arrives through voice events.
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
+  useEffect(() => {
+    let disposed = false
     void window.api.vl
       .getStatus()
       .then((status) => {
@@ -408,6 +483,7 @@ function App(): React.JSX.Element {
   useEffect(
     () =>
       window.api.voice.onEvent((event) => {
+        if (!voiceEnabledRef.current) return
         if (event.event === 'error') {
           voiceSessionActiveRef.current = false
           voiceSessionEndedRef.current = false
@@ -579,38 +655,54 @@ function App(): React.JSX.Element {
     }
   }, [clearVoiceInactivityTimer, hideOrbWithAnimation, resetVoiceInactivityTimer, setOrbState])
 
+  const submitQuestion = useCallback(
+    async (prompt: string): Promise<void> => {
+      if (isLoadingRef.current) return
+
+      setIsLoading(true)
+      isLoadingRef.current = true
+      setOrbState('analyzing')
+      setError(null)
+      if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
+      pendingBoxClearRef.current = true
+      try {
+        const screenResponse = await askQuestion(
+          prompt,
+          screenConversationHistoryRef.current,
+          regionRef.current ?? undefined
+        )
+        screenConversationHistoryRef.current = [
+          ...screenConversationHistoryRef.current,
+          { role: 'user' as const, content: prompt },
+          { role: 'assistant' as const, content: screenResponse.text }
+        ].slice(-8)
+        setResult(screenResponse)
+      } catch (requestError) {
+        pendingBoxClearRef.current = false
+        setError(requestError instanceof Error ? requestError.message : 'Screen analysis failed')
+      } finally {
+        setIsLoading(false)
+        isLoadingRef.current = false
+      }
+    },
+    [setOrbState]
+  )
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     const prompt = question.trim()
 
     if (!prompt || isLoading) return
 
-    setIsLoading(true)
-    isLoadingRef.current = true
-    setOrbState('analyzing')
-    setError(null)
-    if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
-    pendingBoxClearRef.current = true
-    try {
-      const screenResponse = await askQuestion(
-        prompt,
-        screenConversationHistoryRef.current,
-        regionRef.current ?? undefined
-      )
-      screenConversationHistoryRef.current = [
-        ...screenConversationHistoryRef.current,
-        { role: 'user' as const, content: prompt },
-        { role: 'assistant' as const, content: screenResponse.text }
-      ].slice(-8)
-      setResult(screenResponse)
-    } catch (requestError) {
-      pendingBoxClearRef.current = false
-      setError(requestError instanceof Error ? requestError.message : 'Screen analysis failed')
-    } finally {
-      setIsLoading(false)
-      isLoadingRef.current = false
-    }
+    await submitQuestion(prompt)
   }
+
+  const submitAsk = useCallback((): void => {
+    const prompt = askValue.trim()
+    if (!prompt || isLoadingRef.current) return
+    closeAskBar()
+    void submitQuestion(prompt)
+  }, [askValue, closeAskBar, submitQuestion])
 
   const handleTtsSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
@@ -664,11 +756,24 @@ function App(): React.JSX.Element {
         isPanelOpen={isDebugOpen}
         isSelecting={isSelecting}
         hasRegion={region !== null}
+        isVoiceEnabled={isVoiceEnabled}
+        isAsking={isAskOpen}
         onTogglePanel={toggleDebugPanel}
         onSelectArea={startRegionSelection}
+        onToggleVoice={toggleVoice}
+        onOpenAsk={openAskBar}
         onMove={handleToolbarMove}
         onDraggingChange={handleToolbarDraggingChange}
       />
+      {isAskOpen && (
+        <AskBar
+          value={askValue}
+          onChange={setAskValue}
+          onSubmit={submitAsk}
+          onClose={closeAskBar}
+          disabled={isLoading}
+        />
+      )}
       <section
         className={`debug-panel${isDebugOpen ? ' debug-panel--open' : ''}`}
         aria-hidden={!isDebugOpen}
@@ -704,6 +809,19 @@ function App(): React.JSX.Element {
             ) : (
               <p className="question-panel__voice-status">Checking local model…</p>
             )}
+          </div>
+
+          <div className="question-panel">
+            <h2 className="question-panel__title">Voice</h2>
+            <label className="voice-toggle">
+              <input type="checkbox" checked={isVoiceEnabled} onChange={toggleVoice} />
+              <span>Enable voice activation (wake word &amp; speech-to-text)</span>
+            </label>
+            <p className="question-panel__voice-status">
+              {isVoiceEnabled
+                ? 'Wake word detection and speech-to-text are running.'
+                : 'Voice is off · openwakeword and STT are stopped.'}
+            </p>
           </div>
 
           <form className="question-panel" onSubmit={handleSettingsSubmit}>
@@ -751,9 +869,11 @@ function App(): React.JSX.Element {
                 {isSelecting
                   ? 'Selecting…'
                   : region
-                    ? isAutoListen
-                      ? 'Stop listening'
-                      : 'Start listening'
+                    ? !isVoiceEnabled
+                      ? 'Reselect area'
+                      : isAutoListen
+                        ? 'Stop listening'
+                        : 'Start listening'
                     : 'Select area to analyze'}
               </button>
               <span className="region-control__status">

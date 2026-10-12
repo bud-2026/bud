@@ -36,6 +36,7 @@ const screenCaptureMaxDimension = 1920
 const packagedBackendDirectory = join(process.resourcesPath, 'python')
 let ttsProcess: ChildProcess | undefined
 let voiceProcess: ChildProcess | undefined
+let mainWindowRef: BrowserWindow | undefined
 
 function getAISettingsPath(): string {
   return join(app.getPath('userData'), 'ai-settings.json')
@@ -65,8 +66,41 @@ function getAISettings(): AISettings {
   }
 }
 
+function readStoredSettings(): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(readFileSync(getAISettingsPath(), 'utf8')) as unknown
+    if (parsed && typeof parsed === 'object') {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    // No or malformed settings file; start from an empty object.
+  }
+  return {}
+}
+
+// Preserves unrelated keys (such as voiceEnabled) that live in the same file.
 function saveAISettings(settings: AISettings): void {
-  writeFileSync(getAISettingsPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
+  writeFileSync(
+    getAISettingsPath(),
+    `${JSON.stringify({ ...readStoredSettings(), ...settings }, null, 2)}\n`,
+    'utf8'
+  )
+}
+
+// Voice activation (openwakeword + STT) is enabled by default and remembered
+// across restarts. Disabling it stops the backend process so the wake word
+// detector and speech recognizer stop consuming resources.
+function getVoiceEnabled(): boolean {
+  const stored = readStoredSettings()
+  return typeof stored.voiceEnabled === 'boolean' ? stored.voiceEnabled : true
+}
+
+function saveVoiceEnabled(enabled: boolean): void {
+  writeFileSync(
+    getAISettingsPath(),
+    `${JSON.stringify({ ...readStoredSettings(), voiceEnabled: enabled }, null, 2)}\n`,
+    'utf8'
+  )
 }
 
 // Drops settings that are no longer user-configurable now that screen analysis
@@ -150,6 +184,8 @@ function stopTTSBackend(): void {
 }
 
 function startVoiceBackend(mainWindow: BrowserWindow): void {
+  if (voiceProcess) return
+
   const isPackaged = app.isPackaged
   const backendDirectory = isPackaged
     ? join(packagedBackendDirectory, 'stt')
@@ -164,7 +200,7 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
     return
   }
 
-  voiceProcess = spawn(pythonExecutable, [backendScript], {
+  const child = spawn(pythonExecutable, [backendScript], {
     cwd: backendDirectory,
     env: {
       ...process.env,
@@ -173,9 +209,10 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
     stdio: ['pipe', 'pipe', 'inherit'],
     windowsHide: true
   })
+  voiceProcess = child
 
   let pending = ''
-  voiceProcess.stdout?.on('data', (chunk: Buffer) => {
+  child.stdout?.on('data', (chunk: Buffer) => {
     pending += chunk.toString()
     const lines = pending.split(/\r?\n/)
     pending = lines.pop() ?? ''
@@ -188,23 +225,26 @@ function startVoiceBackend(mainWindow: BrowserWindow): void {
       }
     }
   })
-  voiceProcess.on('error', (error) => {
+  child.on('error', (error) => {
     console.error('Voice backend failed to start:', error)
     mainWindow.webContents.send('voice:event', {
       event: 'error',
       message: error.message
     })
   })
-  voiceProcess.on('exit', (code, signal) => {
+  child.on('exit', (code, signal) => {
     console.log(`Voice backend exited (code=${code}, signal=${signal ?? 'none'})`)
-    voiceProcess = undefined
+    // Only clear the shared reference if it still points at this process, so a
+    // rapid off/on toggle cannot let the old process clobber the new one.
+    if (voiceProcess === child) voiceProcess = undefined
   })
 }
 
 function stopVoiceBackend(): void {
-  if (voiceProcess && !voiceProcess.killed) {
-    voiceProcess.kill()
-    voiceProcess = undefined
+  const child = voiceProcess
+  voiceProcess = undefined
+  if (child && !child.killed) {
+    child.kill()
   }
 }
 
@@ -245,6 +285,7 @@ function createWindow(): void {
 
   // Keep the overlay visible locally without including it in supported screen captures.
   mainWindow.setContentProtection(true)
+  mainWindowRef = mainWindow
 
   // Use the highest Electron stacking level so the overlay remains above
   // fullscreen applications and regular always-on-top windows.
@@ -333,6 +374,7 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     globalShortcut.unregister('CommandOrControl+Shift+Space')
+    mainWindowRef = undefined
   })
 }
 
@@ -351,6 +393,7 @@ interface AISettings {
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
+  voiceEnabled?: boolean
 }
 
 interface BoundingBox {
@@ -1174,6 +1217,26 @@ app.whenReady().then(() => {
     stopVoiceSession()
   })
 
+  ipcMain.handle('voice:get-enabled', () => getVoiceEnabled())
+
+  ipcMain.handle('voice:set-enabled', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') {
+      throw new Error('Voice enabled must be a boolean')
+    }
+
+    saveVoiceEnabled(enabled)
+
+    if (enabled) {
+      const mainWindow = mainWindowRef ?? BrowserWindow.getAllWindows()[0]
+      if (mainWindow) startVoiceBackend(mainWindow)
+    } else {
+      stopVoiceSession()
+      stopVoiceBackend()
+    }
+
+    return enabled
+  })
+
   ipcMain.handle('voice:set-listen-mode', (_event, continuous: unknown) => {
     if (typeof continuous !== 'boolean') {
       throw new Error('Voice listen mode must be a boolean')
@@ -1221,9 +1284,13 @@ app.whenReady().then(() => {
   })
 
   createWindow()
-  const mainWindow = BrowserWindow.getAllWindows()[0]
+  const mainWindow = mainWindowRef ?? BrowserWindow.getAllWindows()[0]
   if (mainWindow) {
-    mainWindow.webContents.once('did-finish-load', () => startVoiceBackend(mainWindow))
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (getVoiceEnabled()) {
+        startVoiceBackend(mainWindow)
+      }
+    })
   }
 
   app.on('activate', function () {
