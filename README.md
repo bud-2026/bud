@@ -77,6 +77,7 @@ The key innovation is that Bud is **local-first and smart about where work happe
 - 🖱️ **Focus on a region:** Drag a box to confine Bud to part of the screen, then auto-listen in that area. Clear it with Esc or the × control.
 - 🗣️ **Low-latency streaming speech:** Answer text is normalized in a **separate pass** by a dedicated TTS-formatting model (local Qwen3-VL or an external endpoint) that expands numbers, dates, units, and symbols into spoken form; Pocket-TTS then streams raw PCM chunks over HTTP and the renderer schedules them through Web Audio for smooth, gapless playback.
 - 🫧 **Ambient, non-intrusive overlay:** A transparent, click-through, always-on-top window that becomes interactive only under the cursor, with a toolbar that docks to any edge and hides itself when idle.
+- 🖥️ **Multi-monitor aware:** One overlay is placed on every connected display, and a question is answered against the screen the cursor is on — indicators, region selection, and the drawn answer all land on that display. Each screen remembers its own toolbar position, while the settings panel is shown on a single display at a time.
 - 🧭 **Guided first-run experience:** A step-by-step spotlight tour, a readiness dashboard that gates features until components are ready, and a settings panel (Status, Voice, AI, Debug, Application).
 - 📦 **Zero-config provisioning:** The llama.cpp runtime, the GGUF model + vision projector, and the speech models are downloaded and started automatically on free local ports, with live progress in **Settings → Status**.
 

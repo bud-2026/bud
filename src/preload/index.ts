@@ -125,6 +125,8 @@ const api = {
     setDebugVisible: (visible: boolean): void => {
       ipcRenderer.send('overlay:set-debug-visible', visible)
     },
+    getInfo: (): Promise<{ displayId: number; isPrimary: boolean }> =>
+      ipcRenderer.invoke('overlay:get-info'),
     onDebugVisibilityChanged: (callback: (visible: boolean) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => {
         callback(visible)

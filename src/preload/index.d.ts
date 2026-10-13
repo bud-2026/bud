@@ -91,6 +91,7 @@ declare global {
       setInteractive: (interactive: boolean) => void
       setSelectMode: (active: boolean) => void
       setDebugVisible: (visible: boolean) => void
+      getInfo: () => Promise<{ displayId: number; isPrimary: boolean }>
       onDebugVisibilityChanged: (callback: (visible: boolean) => void) => () => void
     }
     tts: {

@@ -28,9 +28,21 @@ function clampToolbarPosition(position: number): number {
   return Math.min(96, Math.max(4, position))
 }
 
-function readStoredToolbarState(): ToolbarState {
+// Toolbar placement is remembered per display, so docking it on one screen does
+// not move it on the others. Until the display id is known the unscoped legacy
+// key is used as a fallback.
+function toolbarStorageKey(displayId: number | null): string {
+  return displayId === null
+    ? TOOLBAR_STATE_STORAGE_KEY
+    : `${TOOLBAR_STATE_STORAGE_KEY}-${displayId}`
+}
+
+function readStoredToolbarState(displayId: number | null = null): ToolbarState {
   try {
-    const raw = window.localStorage.getItem(TOOLBAR_STATE_STORAGE_KEY)
+    let raw = window.localStorage.getItem(toolbarStorageKey(displayId))
+    if (!raw && displayId !== null) {
+      raw = window.localStorage.getItem(TOOLBAR_STATE_STORAGE_KEY)
+    }
     if (raw) {
       const parsed = JSON.parse(raw) as { edge?: unknown; position?: unknown }
       const position = Number(parsed.position)
@@ -75,6 +87,10 @@ function App(): React.JSX.Element {
   const [isAskOpen, setIsAskOpen] = useState(false)
   const [askValue, setAskValue] = useState('')
   const [toolbar, setToolbar] = useState<ToolbarState>(readStoredToolbarState)
+  const [displayInfo, setDisplayInfo] = useState<{
+    displayId: number
+    isPrimary: boolean
+  } | null>(null)
   const [isToolbarVisible, setIsToolbarVisible] = useState(false)
   const [isGuideOpen, setIsGuideOpen] = useState(false)
   const voiceOrbStateRef = useRef(voiceOrbState)
@@ -342,22 +358,27 @@ function App(): React.JSX.Element {
 
   useEffect(() => window.api.overlay.onDebugVisibilityChanged(setIsDebugOpen), [])
   useEffect(() => {
-    window.localStorage.setItem(TOOLBAR_STATE_STORAGE_KEY, JSON.stringify(toolbar))
-  }, [toolbar])
+    if (!displayInfo) return
+    window.localStorage.setItem(toolbarStorageKey(displayInfo.displayId), JSON.stringify(toolbar))
+  }, [toolbar, displayInfo])
   useEffect(() => {
     toolbarElementRef.current = document.querySelector('.toolbar')
   }, [])
-  // Open the getting-started guide automatically the first time Bud runs. The
-  // boolean lives in the settings file and is set once the guide is dismissed.
+  // Read this overlay's display identity once. It gates app-wide surfaces (the
+  // guide and settings panel live on a single display) and namespaces the
+  // per-display toolbar placement. The getting-started guide auto-opens only on
+  // the primary display, the first time Bud runs.
   useEffect(() => {
     let disposed = false
-    void window.api.guide
-      .getSeen()
-      .then((seen) => {
-        if (!disposed && !seen) setIsGuideOpen(true)
+    void Promise.all([window.api.guide.getSeen(), window.api.overlay.getInfo()])
+      .then(([seen, info]) => {
+        if (disposed) return
+        setDisplayInfo(info)
+        setToolbar(readStoredToolbarState(info.displayId))
+        if (!seen && info.isPrimary) setIsGuideOpen(true)
       })
       .catch(() => {
-        // The guide is optional; ignore read failures.
+        // The guide and display info are optional; ignore read failures.
       })
     return () => {
       disposed = true
