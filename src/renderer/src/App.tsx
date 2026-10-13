@@ -54,6 +54,7 @@ function readStoredToolbarState(): ToolbarState {
 function App(): React.JSX.Element {
   const [question, setQuestion] = useState('')
   const [result, setResult] = useState<ScreenAIResponse | null>(null)
+  const [captionText, setCaptionText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isDebugOpen, setIsDebugOpen] = useState(false)
@@ -640,9 +641,10 @@ function App(): React.JSX.Element {
     ]
   )
   useEffect(() => {
-    const unsubscribeStart = window.api.tts.onStart(({ sampleRate }) => {
+    const unsubscribeStart = window.api.tts.onStart(({ sampleRate, text }) => {
       if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
       clearVoiceInactivityTimer()
+      setCaptionText(text)
       setOrbState('responding')
       isSpeakingRef.current = true
       audioContextRef.current ??= new AudioContext({ sampleRate })
@@ -762,8 +764,8 @@ function App(): React.JSX.Element {
   return (
     <main className="overlay" aria-label="Screen overlay">
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
-      {isWriteAnswers && result?.text && voiceOrbState === 'responding' && (
-        <AnswerCaption text={result.text} exiting={isOrbExiting} />
+      {isWriteAnswers && captionText && voiceOrbState === 'responding' && (
+        <AnswerCaption text={captionText} exiting={isOrbExiting} />
       )}
       {region && !isSelecting && (
         <div

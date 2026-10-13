@@ -26,14 +26,17 @@ interface AISettings {
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
+  generalUseLocal: boolean
   phoneticBaseUrl: string
   phoneticApiKey: string
   phoneticModelId: string
+  phoneticUseLocal: boolean
 }
 
 interface TTSStartEvent {
   requestId: string
   sampleRate: number
+  text: string
 }
 
 interface TTSChunkEvent {

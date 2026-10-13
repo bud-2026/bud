@@ -30,9 +30,11 @@ declare global {
     generalBaseUrl: string
     generalApiKey: string
     generalModelId: string
+    generalUseLocal: boolean
     phoneticBaseUrl: string
     phoneticApiKey: string
     phoneticModelId: string
+    phoneticUseLocal: boolean
   }
 
   type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
@@ -95,7 +97,9 @@ declare global {
       speak: (text: string, voice?: string) => Promise<void>
       getVoice: () => Promise<string>
       setVoice: (voice: string) => Promise<string>
-      onStart: (callback: (event: { requestId: string; sampleRate: number }) => void) => () => void
+      onStart: (
+        callback: (event: { requestId: string; sampleRate: number; text: string }) => void
+      ) => () => void
       onChunk: (callback: (event: { requestId: string; chunk: Uint8Array }) => void) => () => void
       onEnd: (callback: (requestId: string) => void) => () => void
       onError: (callback: (message: string) => void) => () => void

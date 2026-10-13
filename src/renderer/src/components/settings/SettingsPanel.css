@@ -650,6 +650,111 @@
   text-transform: uppercase;
 }
 
+.ai-settings__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.question-panel .ai-settings__toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+  margin: 0;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ai-settings__toggle span {
+  line-height: 1;
+}
+
+.question-panel .ai-settings__toggle input[type='checkbox'] {
+  position: relative;
+  flex: none;
+  align-self: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.question-panel .ai-settings__toggle input[type='checkbox']::after {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  content: '';
+  transform: translateY(-50%);
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.question-panel .ai-settings__toggle input[type='checkbox']:checked {
+  border-color: rgba(99, 230, 190, 0.75);
+  background: #63e6be;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.25),
+    0 0 10px rgba(99, 230, 190, 0.35);
+}
+
+.question-panel .ai-settings__toggle input[type='checkbox']:checked::after {
+  background: #081c16;
+  transform: translateY(-50%) translateX(16px);
+}
+
+.question-panel .ai-settings__toggle input[type='checkbox']:focus-visible {
+  outline: 2px solid rgba(99, 230, 190, 0.5);
+  outline-offset: 2px;
+}
+
+.question-panel .ai-settings__toggle input[type='checkbox']:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.question-panel .ai-settings__group input:not([type='checkbox']):disabled {
+  color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+  cursor: not-allowed;
+}
+
+.ai-settings__status {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ai-settings__status--saved {
+  color: #63e6be;
+}
+
 .model-status {
   display: flex;
   flex-direction: column;

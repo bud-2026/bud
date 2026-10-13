@@ -132,9 +132,11 @@ function getAISettings(): AISettings {
     generalBaseUrl: process.env.GENERAL_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     generalApiKey: process.env.GENERAL_API_KEY ?? '',
     generalModelId: process.env.GENERAL_MODEL_ID ?? '',
+    generalUseLocal: process.env.GENERAL_USE_LOCAL === 'true',
     phoneticBaseUrl: process.env.PHONETIC_BASE_URL ?? '',
     phoneticApiKey: process.env.PHONETIC_API_KEY ?? '',
-    phoneticModelId: process.env.PHONETIC_MODEL_ID ?? ''
+    phoneticModelId: process.env.PHONETIC_MODEL_ID ?? '',
+    phoneticUseLocal: process.env.PHONETIC_USE_LOCAL === 'true'
   }
 
   try {
@@ -146,6 +148,10 @@ function getAISettings(): AISettings {
         typeof stored.generalApiKey === 'string' ? stored.generalApiKey : defaults.generalApiKey,
       generalModelId:
         typeof stored.generalModelId === 'string' ? stored.generalModelId : defaults.generalModelId,
+      generalUseLocal:
+        typeof stored.generalUseLocal === 'boolean'
+          ? stored.generalUseLocal
+          : defaults.generalUseLocal,
       phoneticBaseUrl:
         typeof stored.phoneticBaseUrl === 'string'
           ? stored.phoneticBaseUrl
@@ -155,7 +161,11 @@ function getAISettings(): AISettings {
       phoneticModelId:
         typeof stored.phoneticModelId === 'string'
           ? stored.phoneticModelId
-          : defaults.phoneticModelId
+          : defaults.phoneticModelId,
+      phoneticUseLocal:
+        typeof stored.phoneticUseLocal === 'boolean'
+          ? stored.phoneticUseLocal
+          : defaults.phoneticUseLocal
     }
   } catch {
     return defaults
@@ -755,19 +765,15 @@ interface AIRequest {
   imageUrl?: string
 }
 
-interface AIClientSettings {
-  baseUrl: string
-  apiKey: string
-  modelId: string
-}
-
 interface AISettings {
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
+  generalUseLocal: boolean
   phoneticBaseUrl: string
   phoneticApiKey: string
   phoneticModelId: string
+  phoneticUseLocal: boolean
   voiceEnabled?: boolean
 }
 
@@ -913,7 +919,7 @@ const phoneticFormattingSystemPrompt = `You are an expert Text-to-Speech (TTS) T
    * Use commas \`,\`, em-dashes —, and ellipses \`...\` strategically to force natural pauses where the TTS might otherwise rush through a sentence.
 
 ### Output Requirements:
-* Output **only** the TTS-optimized text. 
+* Output **only** the TTS-optimized text.
 * Do not include conversational filler, meta-commentary, or explanations unless explicitly requested by the user.`
 
 type QuestionType = 'screen' | 'general'
@@ -968,16 +974,23 @@ async function formatTextForSpeech(text: string): Promise<string> {
   const trimmed = text.trim()
   if (!trimmed) return ''
 
-  const settings = getPhoneticAISettings()
-  if (!settings.baseUrl || !settings.apiKey || !settings.modelId) {
+  const settings = getAISettings()
+  const useLocal = settings.phoneticUseLocal
+
+  if (
+    !useLocal &&
+    (!settings.phoneticBaseUrl || !settings.phoneticApiKey || !settings.phoneticModelId)
+  ) {
     return sanitizeForTTS(trimmed)
   }
 
   try {
+    if (useLocal) await ensureLocalVlmReady()
     const { client, model } = createPhoneticClient(settings)
     const response = await client.chat.completions.create({
       model,
-      reasoning_effort: 'none' as const,
+      temperature: 0.0,
+      ...(useLocal ? {} : { reasoning_effort: 'none' as const }),
       messages: [
         { role: 'system', content: phoneticFormattingSystemPrompt },
         { role: 'user', content: trimmed }
@@ -1116,15 +1129,6 @@ function parseRegion(value: unknown): Region | undefined {
   return region
 }
 
-function getGeneralAISettings(): AIClientSettings {
-  const settings = getAISettings()
-  return {
-    baseUrl: settings.generalBaseUrl,
-    apiKey: settings.generalApiKey,
-    modelId: settings.generalModelId
-  }
-}
-
 // The bundled Qwen3-VL server always uses a fixed alias and placeholder key;
 // only its base URL varies (the free port chosen at launch).
 function createLocalVlmClient(): { client: OpenAI; model: string } {
@@ -1134,31 +1138,26 @@ function createLocalVlmClient(): { client: OpenAI; model: string } {
   }
 }
 
-function createGeneralClient(settings: AIClientSettings): { client: OpenAI; model: string } {
-  if (!settings.apiKey) throw new Error('general API key is not configured')
-  if (!settings.modelId) throw new Error('general model ID is not configured')
+// Each configurable service (general answers, phonetic formatting) runs either
+// against the external endpoint the user configured or the bundled local server.
+function createGeneralClient(settings: AISettings): { client: OpenAI; model: string } {
+  if (settings.generalUseLocal) return createLocalVlmClient()
+  if (!settings.generalApiKey) throw new Error('general API key is not configured')
+  if (!settings.generalModelId) throw new Error('general model ID is not configured')
   return {
-    client: new OpenAI({ baseURL: settings.baseUrl, apiKey: settings.apiKey }),
-    model: settings.modelId
+    client: new OpenAI({ baseURL: settings.generalBaseUrl, apiKey: settings.generalApiKey }),
+    model: settings.generalModelId
   }
 }
 
-function getPhoneticAISettings(): AIClientSettings {
-  const settings = getAISettings()
+function createPhoneticClient(settings: AISettings): { client: OpenAI; model: string } {
+  if (settings.phoneticUseLocal) return createLocalVlmClient()
+  if (!settings.phoneticBaseUrl) throw new Error('phonetic base URL is not configured')
+  if (!settings.phoneticApiKey) throw new Error('phonetic API key is not configured')
+  if (!settings.phoneticModelId) throw new Error('phonetic model ID is not configured')
   return {
-    baseUrl: settings.phoneticBaseUrl,
-    apiKey: settings.phoneticApiKey,
-    modelId: settings.phoneticModelId
-  }
-}
-
-function createPhoneticClient(settings: AIClientSettings): { client: OpenAI; model: string } {
-  if (!settings.baseUrl) throw new Error('phonetic base URL is not configured')
-  if (!settings.apiKey) throw new Error('phonetic API key is not configured')
-  if (!settings.modelId) throw new Error('phonetic model ID is not configured')
-  return {
-    client: new OpenAI({ baseURL: settings.baseUrl, apiKey: settings.apiKey }),
-    model: settings.modelId
+    client: new OpenAI({ baseURL: settings.phoneticBaseUrl, apiKey: settings.phoneticApiKey }),
+    model: settings.phoneticModelId
   }
 }
 
@@ -1265,13 +1264,14 @@ async function askGeneral(
   prompt: string,
   history: ScreenConversationMessage[] = []
 ): Promise<ScreenAIResponse> {
-  const settings = getGeneralAISettings()
+  const settings = getAISettings()
+  if (settings.generalUseLocal) await ensureLocalVlmReady()
   const { client, model } = createGeneralClient(settings)
 
   const response = await client.chat.completions.create({
     model,
-    // reasoning_effort only applies to hosted reasoning models.
-    reasoning_effort: 'none' as const,
+    // reasoning_effort only applies to the hosted reasoning models.
+    ...(settings.generalUseLocal ? {} : { reasoning_effort: 'none' as const }),
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -1484,7 +1484,8 @@ Regardless of context, always return the exact same JSON object structure. Never
 async function streamTTS(
   text: string,
   webContents: Electron.WebContents,
-  voice?: string
+  voice?: string,
+  caption?: string
 ): Promise<void> {
   if (!ttsBaseUrl) throw new Error('TTS backend is not available')
   const requestId = randomUUID()
@@ -1504,7 +1505,7 @@ async function streamTTS(
     throw new Error('TTS backend returned an invalid sample rate')
   }
 
-  webContents.send('tts:start', { requestId, sampleRate })
+  webContents.send('tts:start', { requestId, sampleRate, text: caption ?? text })
   const reader = response.body.getReader()
 
   try {
@@ -1573,7 +1574,7 @@ app.whenReady().then(() => {
       imageUrl
     })
     const spoken = await formatTextForSpeech(response)
-    void streamTTS(spoken, _event.sender).catch((error: unknown) => {
+    void streamTTS(spoken, _event.sender, undefined, response).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
       _event.sender.send('tts:error', { message })
@@ -1615,7 +1616,7 @@ app.whenReady().then(() => {
       parseRegion('region' in request ? request.region : undefined)
     )
     const spoken = await formatTextForSpeech(result.text)
-    void streamTTS(spoken, _event.sender).catch((error: unknown) => {
+    void streamTTS(spoken, _event.sender, undefined, result.text).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
       _event.sender.send('tts:error', { message })
@@ -1657,7 +1658,7 @@ app.whenReady().then(() => {
       parseRegion('region' in request ? request.region : undefined)
     )
     const spoken = await formatTextForSpeech(result.text)
-    void streamTTS(spoken, _event.sender).catch((error: unknown) => {
+    void streamTTS(spoken, _event.sender, undefined, result.text).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
       _event.sender.send('tts:error', { message })
@@ -1677,7 +1678,8 @@ app.whenReady().then(() => {
     void streamTTS(
       text.trim(),
       _event.sender,
-      typeof voice === 'string' ? voice.trim() : undefined
+      typeof voice === 'string' ? voice.trim() : undefined,
+      text.trim()
     ).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
@@ -1764,29 +1766,50 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('settings:save-ai', (_event, settings: unknown) => {
+    if (typeof settings !== 'object' || settings === null) {
+      throw new Error('AI settings must be an object')
+    }
+
+    const trim = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
+
+    const generalUseLocal = 'generalUseLocal' in settings ? settings.generalUseLocal : undefined
+    if (generalUseLocal !== undefined && typeof generalUseLocal !== 'boolean') {
+      throw new Error('General use-local flag must be a boolean')
+    }
+    const phoneticUseLocal = 'phoneticUseLocal' in settings ? settings.phoneticUseLocal : undefined
+    if (phoneticUseLocal !== undefined && typeof phoneticUseLocal !== 'boolean') {
+      throw new Error('Phonetic use-local flag must be a boolean')
+    }
+    const useLocalForGeneral = generalUseLocal === true
+    const useLocalForPhonetic = phoneticUseLocal === true
+
+    // The external endpoint is only required when the service is not set to
+    // run on the bundled local model.
     if (
-      typeof settings !== 'object' ||
-      settings === null ||
-      !('generalBaseUrl' in settings) ||
-      typeof settings.generalBaseUrl !== 'string' ||
-      !settings.generalBaseUrl.trim() ||
-      !('generalApiKey' in settings) ||
-      typeof settings.generalApiKey !== 'string' ||
-      !settings.generalApiKey.trim() ||
-      !('generalModelId' in settings) ||
-      typeof settings.generalModelId !== 'string' ||
-      !settings.generalModelId.trim()
+      !useLocalForGeneral &&
+      (!('generalBaseUrl' in settings) ||
+        typeof settings.generalBaseUrl !== 'string' ||
+        !settings.generalBaseUrl.trim() ||
+        !('generalApiKey' in settings) ||
+        typeof settings.generalApiKey !== 'string' ||
+        !settings.generalApiKey.trim() ||
+        !('generalModelId' in settings) ||
+        typeof settings.generalModelId !== 'string' ||
+        !settings.generalModelId.trim())
     ) {
       throw new Error('AI settings require a base URL, API key, and model ID')
     }
 
-    try {
-      const baseUrl = new URL(settings.generalBaseUrl)
-      if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
-        throw new Error('unsupported protocol')
+    const trimmedGeneralBaseUrl = trim('generalBaseUrl' in settings ? settings.generalBaseUrl : '')
+    if (!useLocalForGeneral) {
+      try {
+        const baseUrl = new URL(trimmedGeneralBaseUrl)
+        if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
+          throw new Error('unsupported protocol')
+        }
+      } catch {
+        throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
       }
-    } catch {
-      throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
     }
 
     const phoneticBaseUrl = 'phoneticBaseUrl' in settings ? settings.phoneticBaseUrl : undefined
@@ -1815,12 +1838,14 @@ app.whenReady().then(() => {
     }
 
     const savedSettings = {
-      generalBaseUrl: settings.generalBaseUrl.trim(),
-      generalApiKey: settings.generalApiKey.trim(),
-      generalModelId: settings.generalModelId.trim(),
+      generalBaseUrl: trimmedGeneralBaseUrl,
+      generalApiKey: trim('generalApiKey' in settings ? settings.generalApiKey : ''),
+      generalModelId: trim('generalModelId' in settings ? settings.generalModelId : ''),
+      generalUseLocal: useLocalForGeneral,
       phoneticBaseUrl: trimmedPhoneticBaseUrl,
       phoneticApiKey: typeof phoneticApiKey === 'string' ? phoneticApiKey.trim() : '',
-      phoneticModelId: typeof phoneticModelId === 'string' ? phoneticModelId.trim() : ''
+      phoneticModelId: typeof phoneticModelId === 'string' ? phoneticModelId.trim() : '',
+      phoneticUseLocal: useLocalForPhonetic
     }
     saveAISettings(savedSettings)
     return savedSettings

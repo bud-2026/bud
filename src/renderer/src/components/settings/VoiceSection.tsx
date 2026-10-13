@@ -11,7 +11,7 @@ interface VoiceSectionProps {
 }
 
 // Fixed sample spoken when previewing a voice so the user can compare them.
-const PREVIEW_TEXT = 'Hi, my name is Bud'
+const PREVIEW_TEXT = 'Hey, my name is Bud.'
 
 function VoiceSection({
   isVoiceEnabled,
