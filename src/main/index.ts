@@ -186,6 +186,21 @@ function saveVoiceEnabled(enabled: boolean): void {
   )
 }
 
+// Whether Bud also writes its spoken answer out on screen as a caption. Off by
+// default so the overlay stays quiet; remembered across restarts when enabled.
+function getWriteAnswers(): boolean {
+  const stored = readStoredSettings()
+  return typeof stored.writeAnswersEnabled === 'boolean' ? stored.writeAnswersEnabled : false
+}
+
+function saveWriteAnswers(enabled: boolean): void {
+  writeFileSync(
+    getAISettingsPath(),
+    `${JSON.stringify({ ...readStoredSettings(), writeAnswersEnabled: enabled }, null, 2)}\n`,
+    'utf8'
+  )
+}
+
 // The Pocket-TTS voice Bud speaks with. Remembered across restarts so the
 // choice applies to every spoken answer, not just the settings preview.
 function getTtsVoice(): string {
@@ -1614,6 +1629,17 @@ app.whenReady().then(() => {
       throw new Error('Voice listen mode must be a boolean')
     }
     setVoiceListenMode(continuous)
+  })
+
+  ipcMain.handle('answers:get-write', () => getWriteAnswers())
+
+  ipcMain.handle('answers:set-write', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') {
+      throw new Error('Write answers flag must be a boolean')
+    }
+
+    saveWriteAnswers(enabled)
+    return enabled
   })
 
   ipcMain.handle('settings:get-ai', () => getAISettings())

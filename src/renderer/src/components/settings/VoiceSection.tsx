@@ -5,6 +5,8 @@ import { DEFAULT_TTS_VOICE, POCKET_TTS_VOICE_GROUPS, formatVoiceName } from '../
 interface VoiceSectionProps {
   isVoiceEnabled: boolean
   onToggleVoice: () => void
+  isWriteAnswers: boolean
+  onToggleWriteAnswers: (enabled: boolean) => void
   onError: (message: string | null) => void
 }
 
@@ -14,6 +16,8 @@ const PREVIEW_TEXT = 'Hi, my name is Bud'
 function VoiceSection({
   isVoiceEnabled,
   onToggleVoice,
+  isWriteAnswers,
+  onToggleWriteAnswers,
   onError
 }: VoiceSectionProps): React.JSX.Element {
   const [ttsText, setTtsText] = useState('')
@@ -104,6 +108,19 @@ function VoiceSection({
           {isVoiceEnabled
             ? 'Wake word detection and speech-to-text are running.'
             : 'Voice is off · openwakeword and STT are stopped.'}
+        </p>
+        <label className="voice-toggle">
+          <input
+            type="checkbox"
+            checked={isWriteAnswers}
+            onChange={(event) => onToggleWriteAnswers(event.target.checked)}
+          />
+          <span>Show written answers</span>
+        </label>
+        <p className="question-panel__voice-status">
+          {isWriteAnswers
+            ? 'Bud also writes each spoken answer on screen.'
+            : 'Bud only speaks its answer out loud.'}
         </p>
       </div>
 

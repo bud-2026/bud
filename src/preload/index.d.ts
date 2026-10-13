@@ -124,6 +124,10 @@ declare global {
         }) => void
       ) => () => void
     }
+    answers: {
+      getWrite: () => Promise<boolean>
+      setWrite: (enabled: boolean) => Promise<boolean>
+    }
     settings: {
       getAI: () => Promise<AISettings>
       saveAI: (settings: AISettings) => Promise<AISettings>

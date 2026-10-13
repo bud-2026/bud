@@ -21,6 +21,8 @@ interface SettingsPanelProps {
   ttsStatus: BackendComponentStatus | null
   isVoiceEnabled: boolean
   onToggleVoice: () => void
+  isWriteAnswers: boolean
+  onToggleWriteAnswers: (enabled: boolean) => void
   voiceStatus: string
   question: string
   onQuestionChange: (value: string) => void
@@ -180,6 +182,8 @@ function SettingsPanel({
   ttsStatus,
   isVoiceEnabled,
   onToggleVoice,
+  isWriteAnswers,
+  onToggleWriteAnswers,
   voiceStatus,
   question,
   onQuestionChange,
@@ -233,6 +237,8 @@ function SettingsPanel({
           <VoiceSection
             isVoiceEnabled={isVoiceEnabled}
             onToggleVoice={onToggleVoice}
+            isWriteAnswers={isWriteAnswers}
+            onToggleWriteAnswers={onToggleWriteAnswers}
             onError={onError}
           />
         )

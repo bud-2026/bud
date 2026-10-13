@@ -4,6 +4,7 @@ import Indicator from './components/Indicator'
 import RegionSelector from './components/RegionSelector'
 import Toolbar, { type ToolbarEdge } from './components/Toolbar'
 import VoiceOrb from './components/VoiceOrb'
+import AnswerCaption from './components/AnswerCaption'
 import WelcomeGuide from './components/WelcomeGuide'
 import SettingsPanel from './components/settings/SettingsPanel'
 import { askQuestion } from './lib/ai'
@@ -69,6 +70,7 @@ function App(): React.JSX.Element {
   const [isSelecting, setIsSelecting] = useState(false)
   const [isAutoListen, setIsAutoListen] = useState(false)
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true)
+  const [isWriteAnswers, setIsWriteAnswers] = useState(false)
   const [isAskOpen, setIsAskOpen] = useState(false)
   const [askValue, setAskValue] = useState('')
   const [toolbar, setToolbar] = useState<ToolbarState>(readStoredToolbarState)
@@ -285,6 +287,22 @@ function App(): React.JSX.Element {
     })
   }, [clearVoiceInactivityTimer, hideOrbWithAnimation])
 
+  // Owns the "write answers" setting so the settings toggle updates the live
+  // overlay caption immediately, rather than only after a restart.
+  const handleToggleWriteAnswers = useCallback((next: boolean): void => {
+    setError(null)
+    setIsWriteAnswers(next)
+    void window.api.answers
+      .setWrite(next)
+      .then((saved) => setIsWriteAnswers(saved))
+      .catch((error: unknown) => {
+        setIsWriteAnswers(!next)
+        setError(
+          error instanceof Error ? error.message : 'Could not save the answer display setting'
+        )
+      })
+  }, [])
+
   const openAskBar = useCallback((): void => {
     setIsAskOpen(true)
   }, [])
@@ -448,6 +466,22 @@ function App(): React.JSX.Element {
       })
       .catch(() => {
         // Defaults to enabled; live state still arrives through voice events.
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
+  // Whether Bud also writes its spoken answer out on screen. Read once on mount;
+  // the settings panel persists changes for the next launch.
+  useEffect(() => {
+    let disposed = false
+    void window.api.answers
+      .getWrite()
+      .then((enabled) => {
+        if (!disposed) setIsWriteAnswers(enabled)
+      })
+      .catch(() => {
+        // Defaults to off; the feature is purely presentational.
       })
     return () => {
       disposed = true
@@ -728,6 +762,9 @@ function App(): React.JSX.Element {
   return (
     <main className="overlay" aria-label="Screen overlay">
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
+      {isWriteAnswers && result?.text && voiceOrbState === 'responding' && (
+        <AnswerCaption text={result.text} exiting={isOrbExiting} />
+      )}
       {region && !isSelecting && (
         <div
           className="region-outline"
@@ -797,6 +834,8 @@ function App(): React.JSX.Element {
         ttsStatus={ttsStatus}
         isVoiceEnabled={isVoiceEnabled}
         onToggleVoice={toggleVoice}
+        isWriteAnswers={isWriteAnswers}
+        onToggleWriteAnswers={handleToggleWriteAnswers}
         voiceStatus={voiceStatus}
         question={question}
         onQuestionChange={setQuestion}

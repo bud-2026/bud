@@ -39,6 +39,37 @@ body {
   animation: voice-orb-pop-out 220ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
+.answer-caption {
+  position: fixed;
+  z-index: 9;
+  top: 124px;
+  left: 50%;
+  box-sizing: border-box;
+  max-width: min(560px, 80vw);
+  margin: 0;
+  padding: 10px 16px;
+  border: 1px solid rgba(99, 230, 190, 0.5);
+  border-radius: 14px;
+  color: #eafff8;
+  background: rgba(9, 42, 53, 0.82);
+  box-shadow:
+    0 0 18px rgba(99, 230, 190, 0.28),
+    0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+  text-align: center;
+  text-wrap: balance;
+  transform: translateX(-50%);
+  transform-origin: top center;
+  animation: answer-caption-pop-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+
+.answer-caption--hiding {
+  animation: answer-caption-pop-out 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
 .voice-orb__shell {
   position: relative;
   z-index: 1;
@@ -294,6 +325,35 @@ body {
   to {
     opacity: 0;
     transform: translate(-50%, 0) scale(0.2);
+  }
+}
+
+@keyframes answer-caption-pop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes answer-caption-pop-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -6px) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .answer-caption,
+  .answer-caption--hiding {
+    animation: none;
   }
 }
 

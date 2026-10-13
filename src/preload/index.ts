@@ -177,6 +177,11 @@ const api = {
       return () => ipcRenderer.removeListener('voice:event', listener)
     }
   },
+  answers: {
+    getWrite: (): Promise<boolean> => ipcRenderer.invoke('answers:get-write'),
+    setWrite: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('answers:set-write', enabled)
+  },
   vl: {
     getStatus: (): Promise<VlStatusSnapshot> => ipcRenderer.invoke('vl:get-status'),
     onStatus: (callback: (status: VlStatusSnapshot) => void): (() => void) => {
