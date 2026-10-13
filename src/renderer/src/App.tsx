@@ -97,7 +97,6 @@ function App(): React.JSX.Element {
   const regionRef = useRef<Region | null>(null)
   const autoListenRef = useRef(false)
   const voiceEnabledRef = useRef(true)
-  const toolbarRef = useRef<ToolbarState>(toolbar)
   const toolbarElementRef = useRef<HTMLElement | null>(null)
   const isToolbarVisibleRef = useRef(false)
   const isToolbarDraggingRef = useRef(false)
@@ -331,7 +330,6 @@ function App(): React.JSX.Element {
 
   const handleToolbarMove = useCallback((edge: ToolbarEdge, position: number): void => {
     const next = { edge, position }
-    toolbarRef.current = next
     setToolbar(next)
   }, [])
 
@@ -388,26 +386,26 @@ function App(): React.JSX.Element {
   const isPointerNearToolbar = useCallback((x: number, y: number): boolean => {
     const element = toolbarElementRef.current
     if (!element) return false
-    const width = element.offsetWidth
-    const height = element.offsetHeight
+    const { edge } = toolbar
+    const rect = element.getBoundingClientRect()
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
-    const { edge, position } = toolbarRef.current
 
+    // Along the docked edge the element's center is stable: it is anchored at
+    // position% and shifted by -50%, so its own rect is the source of truth and
+    // no separate position tracking is needed.
     if (edge === 'top' || edge === 'bottom') {
-      const center = (position / 100) * viewportWidth
-      if (x < center - width / 2 || x > center + width / 2) return false
+      if (x < rect.left || x > rect.right) return false
       return edge === 'top'
-        ? y <= TOOLBAR_EDGE_INSET + height
-        : y >= viewportHeight - TOOLBAR_EDGE_INSET - height
+        ? y <= TOOLBAR_EDGE_INSET + rect.height
+        : y >= viewportHeight - TOOLBAR_EDGE_INSET - rect.height
     }
 
-    const center = (position / 100) * viewportHeight
-    if (y < center - height / 2 || y > center + height / 2) return false
+    if (y < rect.top || y > rect.bottom) return false
     return edge === 'left'
-      ? x <= TOOLBAR_EDGE_INSET + width
-      : x >= viewportWidth - TOOLBAR_EDGE_INSET - width
-  }, [])
+      ? x <= TOOLBAR_EDGE_INSET + rect.width
+      : x >= viewportWidth - TOOLBAR_EDGE_INSET - rect.width
+  }, [toolbar.edge])
 
   // Single source of truth for overlay interactivity. The window stays
   // click-through, and we only make it interactive while the pointer is over a
