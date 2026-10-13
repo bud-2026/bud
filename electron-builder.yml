@@ -5,10 +5,12 @@ directories:
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!backend/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+compression: maximum
 asarUnpack:
   - resources/**
 extraResources:
@@ -18,11 +20,8 @@ extraResources:
       - '**/*'
 win:
   executableName: bud
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  target:
+    - zip
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
