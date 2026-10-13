@@ -75,7 +75,7 @@ The key innovation is that Bud is **local-first and smart about where work happe
 - 🧠 **Smart router (screen vs. general):** A local classifier sends visual and system-state questions to the vision model and pure trivia to the Nebius cloud model.
 - 🎯 **Visual grounding & copy:** Highlighted indicators point at the elements Bud mentions; when you ask it to read or extract text, a one-click **Copy** button puts the exact raw text on your clipboard.
 - 🖱️ **Focus on a region:** Drag a box to confine Bud to part of the screen, then auto-listen in that area. Clear it with Esc or the × control.
-- 🗣️ **Low-latency streaming speech:** Pocket-TTS streams raw PCM chunks over HTTP and the renderer schedules them through Web Audio for smooth, gapless playback, with phonetic rules that keep numbers, dates, and units sounding natural.
+- 🗣️ **Low-latency streaming speech:** Answer text is normalized in a **separate pass** by a dedicated TTS-formatting model (local Qwen3-VL or an external endpoint) that expands numbers, dates, units, and symbols into spoken form; Pocket-TTS then streams raw PCM chunks over HTTP and the renderer schedules them through Web Audio for smooth, gapless playback.
 - 🫧 **Ambient, non-intrusive overlay:** A transparent, click-through, always-on-top window that becomes interactive only under the cursor, with a toolbar that docks to any edge and hides itself when idle.
 - 🧭 **Guided first-run experience:** A step-by-step spotlight tour, a readiness dashboard that gates features until components are ready, and a settings panel (Status, Voice, AI, Debug, Application).
 - 📦 **Zero-config provisioning:** The llama.cpp runtime, the GGUF model + vision projector, and the speech models are downloaded and started automatically on free local ports, with live progress in **Settings → Status**.
@@ -91,6 +91,7 @@ The key innovation is that Bud is **local-first and smart about where work happe
 - **Screen vision (local):** llama.cpp `llama-server` (CUDA 12.4 build) serving **Qwen3-VL-4B-Instruct** GGUF (`Q4_K_M`) with a `Q8_0` mmproj vision projector
 - **Wake word & Speech-to-Text (local):** Python — `openwakeword` (custom `hey bud` model), Moonshine small streaming recognizer, `pvrecorder`
 - **Text-to-Speech (local):** Python — Pocket-TTS behind a FastAPI/uvicorn server with a chunked `/tts-stream` PCM endpoint
+- **TTS normalization (separate pass):** A dedicated text-normalization model — the bundled local Qwen3-VL or a configurable external OpenAI-compatible endpoint — rewrites answers into spoken form before synthesis, with a regex fallback
 - **General-knowledge LLM:** Nebius AI Studio / Token Factory (OpenAI-compatible API), configurable base URL, key, and model
 - **AI client:** OpenAI Node SDK, pointed at either the local server or Nebius
 - **Packaging:** electron-builder + PyInstaller (Python speech backends staged into `build/python`; model weights and the llama.cpp runtime are downloaded on first launch)
@@ -108,10 +109,15 @@ The key innovation is that Bud is **local-first and smart about where work happe
 ☁️  Nebius API (general answers)     🖥️  desktopCapturer + Qwen3-VL (local)
         │                                    │  text + [xmin,ymin,xmax,ymax] boxes
         └──────────────┬─────────────────────┘
-                       ▼
-        🔊  Pocket-TTS streams PCM → Web Audio (spoken answer)
+                       ▼  written answer (text)
+        🗣️  Separate TTS normalization pass ── (local Qwen3-VL or external model (e.g. through the Nebius API))
+        │  expands numbers, dates, units, and symbols into spoken form
+        ▼
+        🔊  Pocket-TTS streams normalized PCM → Web Audio (spoken answer)
         🎯  Overlay draws bounding boxes + copy buttons
 ```
+
+The spoken answer is **normalized in a separate pass** before it reaches the speech engine: once the router produces an answer, a dedicated TTS-formatting model rewrites it into speakable text (e.g. `10/13/2026` → "October thirteenth, twenty twenty-six"), so numbers, dates, units, and symbols are read correctly. This normalization step has its **own model configuration** — point it at the bundled local Qwen3-VL, or at an external OpenAI-compatible endpoint, independently of the general-answer model. If no normalization model is configured (or the request fails), Bud falls back to a built-in regex cleanup so speech is never blocked.
 
 All capture and inference for screen questions stay on the machine; only general-knowledge prompts reach the network. The always-on-top overlay sets content protection so Bud is excluded from its own screen captures.
 
@@ -170,6 +176,15 @@ GENERAL_API_KEY=your_general_api_key
 GENERAL_MODEL_ID=your_general_model_id
 ```
 
+Optionally configure the separate TTS normalization pass (see **How It Works**). Leave these blank to skip the extra model call and use the built-in regex cleanup, or set `PHONETIC_USE_LOCAL=true` to run it on the bundled local model:
+
+```env
+PHONETIC_BASE_URL=
+PHONETIC_API_KEY=
+PHONETIC_MODEL_ID=
+PHONETIC_USE_LOCAL=false
+```
+
 > Screen analysis and question classification always run on the bundled local Qwen3-VL server — no key is needed for those.
 
 ### 3. Prepare the Backends (Windows, one time)
@@ -204,13 +219,17 @@ pnpm run build:unpack  # unpacked build for quick testing
 
 ### Configuration Reference
 
-| Variable           | Purpose                                          | Default                                   |
-| ------------------ | ------------------------------------------------ | ----------------------------------------- |
-| `GENERAL_BASE_URL` | OpenAI-compatible base URL for general knowledge | `https://api.tokenfactory.nebius.com/v1/` |
-| `GENERAL_API_KEY`  | API key for the general model                    | —                                         |
-| `GENERAL_MODEL_ID` | Model ID used for general answers                | —                                         |
+| Variable             | Purpose                                           | Default                                   |
+| -------------------- | ------------------------------------------------- | ----------------------------------------- |
+| `GENERAL_BASE_URL`   | OpenAI-compatible base URL for general knowledge  | `https://api.tokenfactory.nebius.com/v1/` |
+| `GENERAL_API_KEY`    | API key for the general model                     | —                                         |
+| `GENERAL_MODEL_ID`   | Model ID used for general answers                 | —                                         |
+| `PHONETIC_BASE_URL`  | Base URL for the separate TTS normalization model | — (regex fallback)                        |
+| `PHONETIC_API_KEY`   | API key for the TTS normalization model           | —                                         |
+| `PHONETIC_MODEL_ID`  | Model ID for the TTS normalization pass           | —                                         |
+| `PHONETIC_USE_LOCAL` | Run TTS normalization on the bundled local model  | `false`                                   |
 
-General settings can also be changed at runtime under **Settings → AI**, which persists them to `ai-settings.json` in the app's user-data folder.
+General settings and the TTS normalization model can also be changed at runtime under **Settings → AI** (the "General" and "Phonetic formatting" groups), which persists them to `ai-settings.json` in the app's user-data folder.
 
 ### Using Bud
 
