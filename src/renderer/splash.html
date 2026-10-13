@@ -51,7 +51,7 @@
         padding: 34px 44px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
-        background: rgba(20, 20, 24, 0.88);
+        background: #0A2934;
         backdrop-filter: blur(10px);
         box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
       }
@@ -61,7 +61,7 @@
         display: block;
         width: 108px;
         height: 108px;
-        color: #63e6be;
+        image-rendering: pixelated;
       }
 
       .wordmark {
@@ -98,16 +98,7 @@
 
   <body>
     <div class="splash" role="status" aria-label="Bud is loading">
-      <svg
-        class="logo"
-        viewBox="0 0 48 48"
-        role="img"
-        aria-label="Bud"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <circle cx="24" cy="24" r="19" fill="none" stroke="currentColor" stroke-width="2.5" />
-        <circle cx="24" cy="24" r="7" fill="currentColor" />
-      </svg>
+      <img class="logo" src="./src/assets/icon.png" alt="" aria-hidden="true" />
 
       <p class="wordmark">Starting Bud...</p>
 

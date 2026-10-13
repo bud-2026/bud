@@ -763,6 +763,7 @@ function App(): React.JSX.Element {
 
   return (
     <main className="overlay" aria-label="Screen overlay">
+      {/* <VoiceOrb state="responding" /> */}
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
       {isWriteAnswers && captionText && voiceOrbState === 'responding' && (
         <AnswerCaption text={captionText} exiting={isOrbExiting} />

@@ -661,7 +661,7 @@ function createWindow(): void {
   })
 
   // Keep the overlay visible locally without including it in supported screen captures.
-  mainWindow.setContentProtection(true)
+  // mainWindow.setContentProtection(true)
   mainWindowRef = mainWindow
 
   // Use the highest Electron stacking level so the overlay remains above

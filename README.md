@@ -4,7 +4,7 @@
 
 <!-- LOGO PLACEHOLDER -->
 <a href="https://github.com/your-username/your-repo-name">
-  <img src="docs/assets/logo.png" alt="Project Logo" width="120" height="120">
+  <img src="resources/icon.png" alt="Bud Logo" width="120" height="120">
 </a>
 
 ### Built for: Nebius x NVIDIA Global AI Hackathon 2026
@@ -53,11 +53,11 @@ _Or animated preview:_
 
 ### ❌ The Problem
 
-People work across dozens of windows, tabs, and documents, yet the information they need is usually *on the screen in front of them*. Getting help with it still means stopping what they are doing: switching to another app, describing what they see out loud, or copying text by hand. General voice assistants can answer trivia but are **blind to the screen**, and screenshot-to-cloud tools trade away **privacy and latency**. This excludes exactly the users who need help most — people working hands-free, on a call, away from the keyboard, or relying on assistive technology.
+People work across dozens of windows, tabs, and documents, yet the information they need is usually _on the screen in front of them_. Getting help with it still means stopping what they are doing: switching to another app, describing what they see out loud, or copying text by hand. General voice assistants can answer trivia but are **blind to the screen**, and screenshot-to-cloud tools trade away **privacy and latency**. This excludes exactly the users who need help most — people working hands-free, on a call, away from the keyboard, or relying on assistive technology.
 
 ### ✨ Our Solution
 
-**Bud** is a voice-first assistant that lives as a translucent overlay on top of the desktop and *sees what you see*. Say **"Hey Bud"**, ask a question naturally, and Bud answers out loud and draws a box around the exact element it is describing.
+**Bud** is a voice-first assistant that lives as a translucent overlay on top of the desktop and _sees what you see_. Say **"Hey Bud"**, ask a question naturally, and Bud answers out loud and draws a box around the exact element it is describing.
 
 The key innovation is that Bud is **local-first and smart about where work happens**:
 
@@ -204,11 +204,11 @@ pnpm run build:unpack  # unpacked build for quick testing
 
 ### Configuration Reference
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
+| Variable           | Purpose                                          | Default                                   |
+| ------------------ | ------------------------------------------------ | ----------------------------------------- |
 | `GENERAL_BASE_URL` | OpenAI-compatible base URL for general knowledge | `https://api.tokenfactory.nebius.com/v1/` |
-| `GENERAL_API_KEY` | API key for the general model | — |
-| `GENERAL_MODEL_ID` | Model ID used for general answers | — |
+| `GENERAL_API_KEY`  | API key for the general model                    | —                                         |
+| `GENERAL_MODEL_ID` | Model ID used for general answers                | —                                         |
 
 General settings can also be changed at runtime under **Settings → AI**, which persists them to `ai-settings.json` in the app's user-data folder.
 
