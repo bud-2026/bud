@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { DEFAULT_TTS_VOICE, POCKET_TTS_VOICE_GROUPS, formatVoiceName } from '../../lib/voices'
+import Toggle from './Toggle'
 
 interface VoiceSectionProps {
   isVoiceEnabled: boolean
@@ -98,35 +99,33 @@ function VoiceSection({
   }
 
   return (
-    <div className="settings-section">
-      <div className="question-panel">
-        <label className="voice-toggle">
-          <input type="checkbox" checked={isVoiceEnabled} onChange={onToggleVoice} />
-          <span>Enable voice activation (wake word &amp; speech-to-text)</span>
-        </label>
-        <p className="question-panel__voice-status">
+    <div className="question-panel">
+      <div className="settings-group">
+        <Toggle
+          checked={isVoiceEnabled}
+          onChange={() => onToggleVoice()}
+          label="Voice activation"
+        />
+        <p className="settings-hint">
           {isVoiceEnabled
             ? 'Wake word detection and speech-to-text are running.'
             : 'Voice is off · openwakeword and STT are stopped.'}
         </p>
-        <label className="voice-toggle">
-          <input
-            type="checkbox"
-            checked={isWriteAnswers}
-            onChange={(event) => onToggleWriteAnswers(event.target.checked)}
-          />
-          <span>Show written answers</span>
-        </label>
-        <p className="question-panel__voice-status">
+        <Toggle
+          checked={isWriteAnswers}
+          onChange={onToggleWriteAnswers}
+          label="Show written answers"
+        />
+        <p className="settings-hint">
           {isWriteAnswers
             ? 'Bud also writes each spoken answer on screen.'
             : 'Bud only speaks its answer out loud.'}
         </p>
       </div>
 
-      <div className="question-panel">
-        <label>Voice</label>
-        <p className="question-panel__voice-status">
+      <div className="settings-group">
+        <span className="settings-heading">Voice</span>
+        <p className="settings-hint">
           Bud speaks with <strong>{formatVoiceName(voice)}</strong> · press play to preview
         </p>
         <div className="voice-groups">
@@ -179,8 +178,10 @@ function VoiceSection({
         </div>
       </div>
 
-      <form className="question-panel" onSubmit={handleTtsSubmit}>
-        <label htmlFor="tts-text">Test text-to-speech</label>
+      <form className="settings-group" onSubmit={handleTtsSubmit}>
+        <label className="settings-heading" htmlFor="tts-text">
+          Test text-to-speech
+        </label>
         <div className="question-panel__controls">
           <input
             id="tts-text"

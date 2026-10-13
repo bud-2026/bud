@@ -69,7 +69,7 @@ function ModelStatusRow({ label, version, status }: ModelStatusRowProps): React.
           {describeStatus(status)}
         </span>
       </div>
-      <span className="model-status__version">{version}</span>
+      <span className="settings-hint">{version}</span>
       {isDownloading && percent > 0 ? (
         <div
           className="model-status__bar"
@@ -125,7 +125,7 @@ function StatusSection({
         <span className="readiness__dot" aria-hidden="true" />
         <div className="readiness__text">
           <strong className="readiness__title">{summary.title}</strong>
-          <span className="readiness__description">{summary.description}</span>
+          <span className="settings-hint">{summary.description}</span>
         </div>
       </div>
       {vlStatus || sttStatus || ttsStatus ? (
@@ -177,7 +177,7 @@ function StatusSection({
           ) : null}
         </ul>
       ) : (
-        <p className="question-panel__voice-status">Checking components…</p>
+        <p className="settings-hint">Checking components…</p>
       )}
     </div>
   )

@@ -33,8 +33,9 @@ function DebugSection({
 }: DebugSectionProps): React.JSX.Element {
   return (
     <form className="question-panel" onSubmit={onAskSubmit}>
-      <p className="question-panel__voice-status">{voiceStatus}</p>
+      <p className="settings-hint">{voiceStatus}</p>
       <div className="region-control">
+        <span className="settings-heading">Screen area</span>
         <div className="region-control__buttons">
           <button type="button" onClick={onRegionControlClick} disabled={isSelecting}>
             {isSelecting
@@ -50,7 +51,7 @@ function DebugSection({
           {region ? (
             <button
               type="button"
-              className="region-control__clear"
+              className="settings-button--danger"
               onClick={onClearRegion}
               disabled={isSelecting}
             >
@@ -58,7 +59,7 @@ function DebugSection({
             </button>
           ) : null}
         </div>
-        <span className="region-control__status">
+        <span className="settings-hint">
           {region
             ? isAutoListen
               ? `Area selected (${region.width}×${region.height} of 1000) · auto-listening · Esc or × to clear`
@@ -79,7 +80,7 @@ function DebugSection({
         </button>
       </div>
       {result && <p className="question-panel__response">{result.text}</p>}
-      {voiceTranscript && <p className="question-panel__transcript">Heard: {voiceTranscript}</p>}
+      {voiceTranscript && <p className="settings-hint">Heard: {voiceTranscript}</p>}
     </form>
   )
 }

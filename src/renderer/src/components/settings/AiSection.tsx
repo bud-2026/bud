@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import Toggle from './Toggle'
 
 interface AiSectionProps {
   onError: (message: string | null) => void
@@ -89,18 +90,15 @@ function AiSection({ onError }: AiSectionProps): React.JSX.Element {
 
   return (
     <form className="question-panel" onSubmit={handleSettingsSubmit}>
-      <div className="ai-settings__group">
-        <div className="ai-settings__group-head">
-          <strong>General responses</strong>
-          <label className="ai-settings__toggle">
-            <input
-              type="checkbox"
-              checked={aiSettings.generalUseLocal}
-              onChange={(event) => updateSettings({ generalUseLocal: event.target.checked })}
-              disabled={isSavingSettings}
-            />
-            <span>Local model</span>
-          </label>
+      <div className="settings-group">
+        <div className="settings-group__head">
+          <span className="settings-heading">General responses</span>
+          <Toggle
+            checked={aiSettings.generalUseLocal}
+            onChange={(checked) => updateSettings({ generalUseLocal: checked })}
+            label="Local model"
+            disabled={isSavingSettings}
+          />
         </div>
         <input
           value={aiSettings.generalBaseUrl}
@@ -122,18 +120,15 @@ function AiSection({ onError }: AiSectionProps): React.JSX.Element {
           disabled={isSavingSettings || aiSettings.generalUseLocal}
         />
       </div>
-      <div className="ai-settings__group">
-        <div className="ai-settings__group-head">
-          <strong>Phonetic formatting</strong>
-          <label className="ai-settings__toggle">
-            <input
-              type="checkbox"
-              checked={aiSettings.phoneticUseLocal}
-              onChange={(event) => updateSettings({ phoneticUseLocal: event.target.checked })}
-              disabled={isSavingSettings}
-            />
-            <span>Local model</span>
-          </label>
+      <div className="settings-group">
+        <div className="settings-group__head">
+          <span className="settings-heading">Phonetic formatting</span>
+          <Toggle
+            checked={aiSettings.phoneticUseLocal}
+            onChange={(checked) => updateSettings({ phoneticUseLocal: checked })}
+            label="Local model"
+            disabled={isSavingSettings}
+          />
         </div>
         <input
           value={aiSettings.phoneticBaseUrl}
@@ -161,8 +156,8 @@ function AiSection({ onError }: AiSectionProps): React.JSX.Element {
         </button>
         {saveStatus && (
           <span
-            className={`ai-settings__status${
-              justSaved && !isDirty && !isSavingSettings ? ' ai-settings__status--saved' : ''
+            className={`settings-hint${
+              justSaved && !isDirty && !isSavingSettings ? ' settings-hint--saved' : ''
             }`}
             aria-live="polite"
           >

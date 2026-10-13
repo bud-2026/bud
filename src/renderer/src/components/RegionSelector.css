@@ -75,37 +75,3 @@
 .region-clear:active {
   background: rgba(255, 92, 92, 1);
 }
-
-.region-control {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-.region-control__buttons {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.region-control__buttons button.region-control__clear {
-  border: 1px solid rgba(255, 135, 135, 0.5);
-  color: #ffd9d9;
-  background: rgba(255, 107, 107, 0.18);
-}
-
-.region-control__buttons button.region-control__clear:hover {
-  background: rgba(255, 107, 107, 0.32);
-}
-
-.region-control__buttons button.region-control__clear:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.region-control__status {
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 11px;
-  font-weight: 500;
-}
