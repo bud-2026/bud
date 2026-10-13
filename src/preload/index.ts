@@ -26,6 +26,9 @@ interface AISettings {
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
+  phoneticBaseUrl: string
+  phoneticApiKey: string
+  phoneticModelId: string
 }
 
 interface TTSStartEvent {

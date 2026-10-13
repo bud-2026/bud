@@ -9,7 +9,10 @@ function AiSection({ onError }: AiSectionProps): React.JSX.Element {
   const [aiSettings, setAiSettings] = useState<AISettings>({
     generalBaseUrl: '',
     generalApiKey: '',
-    generalModelId: ''
+    generalModelId: '',
+    phoneticBaseUrl: '',
+    phoneticApiKey: '',
+    phoneticModelId: ''
   })
   const [isSavingSettings, setIsSavingSettings] = useState(false)
 
@@ -62,6 +65,32 @@ function AiSection({ onError }: AiSectionProps): React.JSX.Element {
           value={aiSettings.generalModelId}
           onChange={(event) => setAiSettings({ ...aiSettings, generalModelId: event.target.value })}
           placeholder="General model ID"
+          disabled={isSavingSettings}
+        />
+      </div>
+      <div className="ai-settings__group">
+        <strong>Phonetic formatting</strong>
+        <input
+          value={aiSettings.phoneticBaseUrl}
+          onChange={(event) =>
+            setAiSettings({ ...aiSettings, phoneticBaseUrl: event.target.value })
+          }
+          placeholder="Phonetic base URL"
+          disabled={isSavingSettings}
+        />
+        <input
+          type="password"
+          value={aiSettings.phoneticApiKey}
+          onChange={(event) => setAiSettings({ ...aiSettings, phoneticApiKey: event.target.value })}
+          placeholder="Phonetic API key"
+          disabled={isSavingSettings}
+        />
+        <input
+          value={aiSettings.phoneticModelId}
+          onChange={(event) =>
+            setAiSettings({ ...aiSettings, phoneticModelId: event.target.value })
+          }
+          placeholder="Phonetic model ID"
           disabled={isSavingSettings}
         />
       </div>

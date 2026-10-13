@@ -30,6 +30,9 @@ declare global {
     generalBaseUrl: string
     generalApiKey: string
     generalModelId: string
+    phoneticBaseUrl: string
+    phoneticApiKey: string
+    phoneticModelId: string
   }
 
   type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'

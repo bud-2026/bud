@@ -131,7 +131,10 @@ function getAISettings(): AISettings {
   const defaults: AISettings = {
     generalBaseUrl: process.env.GENERAL_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     generalApiKey: process.env.GENERAL_API_KEY ?? '',
-    generalModelId: process.env.GENERAL_MODEL_ID ?? ''
+    generalModelId: process.env.GENERAL_MODEL_ID ?? '',
+    phoneticBaseUrl: process.env.PHONETIC_BASE_URL ?? '',
+    phoneticApiKey: process.env.PHONETIC_API_KEY ?? '',
+    phoneticModelId: process.env.PHONETIC_MODEL_ID ?? ''
   }
 
   try {
@@ -142,7 +145,17 @@ function getAISettings(): AISettings {
       generalApiKey:
         typeof stored.generalApiKey === 'string' ? stored.generalApiKey : defaults.generalApiKey,
       generalModelId:
-        typeof stored.generalModelId === 'string' ? stored.generalModelId : defaults.generalModelId
+        typeof stored.generalModelId === 'string' ? stored.generalModelId : defaults.generalModelId,
+      phoneticBaseUrl:
+        typeof stored.phoneticBaseUrl === 'string'
+          ? stored.phoneticBaseUrl
+          : defaults.phoneticBaseUrl,
+      phoneticApiKey:
+        typeof stored.phoneticApiKey === 'string' ? stored.phoneticApiKey : defaults.phoneticApiKey,
+      phoneticModelId:
+        typeof stored.phoneticModelId === 'string'
+          ? stored.phoneticModelId
+          : defaults.phoneticModelId
     }
   } catch {
     return defaults
@@ -752,6 +765,9 @@ interface AISettings {
   generalBaseUrl: string
   generalApiKey: string
   generalModelId: string
+  phoneticBaseUrl: string
+  phoneticApiKey: string
+  phoneticModelId: string
   voiceEnabled?: boolean
 }
 
@@ -789,11 +805,7 @@ CRITICAL INSTRUCTIONS:
    - For capability/permission questions (e.g., "Can you..."), vary your starting response naturally using context-neutral openers (e.g., "Yes,", "Sure,", "I've got it,", "Absolutely,"). Never repeat the same opener consecutively.
    - For direct factual or visual-reading requests (e.g., "Bud, what time is it?", "Read the title"), state the answer directly without introductory filler.
 
-2. TTS PHONETIC FORMATTING:
-   - Convert ALL numbers, dates, times, units, currencies, and symbols into full phonetic words for the text-to-speech engine in the "text" field.
-   - Examples: write "seven fifteen p m" (not "7:15 PM"), "forty-two dollars" (not "$42"), "percent" (not "%"), "twenty-twenty-six" (not "2026").
-
-3. VISUAL GROUNDING ("boxes") - STRICT MANDATE:
+2. VISUAL GROUNDING ("boxes") - STRICT MANDATE:
    - IF YOU MENTION OR DESCRIBE ANY VISUAL ELEMENT, TEXT BLOCK, BUTTON, ICON, OR UI REGION IN YOUR "text" FIELD, YOU MUST INCLUDE ITS BOUNDING BOX IN THE "boxes" ARRAY.
    - NEVER leave the "boxes" array empty if your spoken text answers a screen-based or visual query.
    - For each box, specify the "label" and "copy" text FIRST, then output the "bbox" coordinates.
@@ -811,7 +823,7 @@ JSON Schema:
       "bbox": [xmin, ymin, xmax, ymax]
     }
   ],
-  "text": "spoken response formatted phonetically for text-to-speech"
+  "text": "spoken response in natural written form"
 }
 
 Example Output (General Localization - No copy requested):
@@ -835,7 +847,7 @@ Example Output (Text Extraction Requested):
       "bbox": [145, 210, 520, 380]
     }
   ],
-  "text": "The meeting starts at three thirty p m."
+  "text": "The meeting starts at 3:30 PM."
 }
 
 Use an empty "boxes" array ONLY when the user's question is completely unrelated to the screen image (e.g., general knowledge queries). Respond strictly with raw JSON.
@@ -869,11 +881,40 @@ CRITICAL INSTRUCTIONS:
    - Speak as Bud: warm, direct, helpful, and natural.
    - Limit answers strictly to what was asked without volunteer trivia or unnecessary details.
    - For capability/permission questions (e.g., "Can you..."), vary your starting response naturally using context-neutral openers (e.g., "Yes,", "Sure,", "I've got it,", "Absolutely,"). Never repeat the same opener consecutively.
-   - For direct factual requests (e.g., "Bud, what is the capital of France?"), state the answer directly without introductory filler.
+   - For direct factual requests (e.g., "Bud, what is the capital of France?"), state the answer directly without introductory filler.`
 
-2. TTS PHONETIC FORMATTING:
-   - Convert ALL numbers, dates, times, units, currencies, and symbols into full phonetic words for the text-to-speech engine in the "text" field.
-  - Examples: write "seven fifteen p m" (not "7:15 PM"), "forty-two dollars" (not "$42"), "percent" (not "%"), "twenty-twenty-six" (not "2026").`
+// Dedicated system prompt for the separate text-to-speech normalization pass.
+// It rewrites an answer into spoken form so the TTS engine reads numbers, dates,
+// units, and symbols correctly.
+const phoneticFormattingSystemPrompt = `You are an expert Text-to-Speech (TTS) Text Normalization and Formatting Assistant. Your primary objective is to take raw, written text and rewrite it so that a TTS engine can read it aloud with maximum accuracy, natural pacing, and proper pronunciation, avoiding any awkward robotic misinterpretations.
+
+### Core Guidelines & Transformation Rules:
+
+1. **Numbers & Digits:**
+   * **Spell out all numbers** unless they represent a specific year or formatted date that the TTS handles well, but when in doubt, spell them out or use phonetic approximations.
+   * *Examples:* Change "5" to "five", "100" to "one hundred", "42nd" to "forty-second".
+   * **Phone numbers & IDs:** Group them with hyphens or spaces to control pacing (e.g., "555-0199" -> "5-5-5, dash, 0-1-9-9").
+
+2. **Dates, Times, & Measurements:**
+   * **Dates:** Convert numerical dates into spoken words. (e.g., "10/13/2026" -> "October thirteenth, twenty twenty-six").
+   * **Times:** Spell out times clearly. (e.g., "3:45 PM" -> "three forty-five p.m.").
+   * **Measurements & Units:** Spell out abbreviations to prevent letter-by-letter spelling. (e.g., "10kg" -> "ten kilograms", "5mi" -> "five miles", "60mph" -> "sixty miles per hour").
+
+3. **Symbols, Punctuation, & Abbreviations:**
+   * **Currencies:** Place the word after the number or spell it naturally. (e.g., "$50" -> "fifty dollars", "€20" -> "twenty euros").
+   * **Math & Special Symbols:** Replace symbols with words. (e.g., "+" -> " plus ", "=" -> " equals ", "%" -> " percent ", "&" -> " and ").
+   * **Acronyms & Abbreviations:** If an acronym should be spelled out letter-by-letter, add spaces or hyphens (e.g., "NASA" can usually be read as a word, but "HTML" might need "H-T-M-L" if the TTS struggles). Expand common ones like "Dr." to "Doctor" and "Mr." to "Mister".
+
+4. **Urls, Emails, & Code:**
+   * **URLs & Emails:** Break them down phonetically if necessary, replacing symbols: "support@example.com" -> "support at example dot com".
+   * **Code/Technical terms:** Spell out programming syntax or variables if a standard TTS would choke on them.
+
+5. **Punctuation for Pacing:**
+   * Use commas \`,\`, em-dashes —, and ellipses \`...\` strategically to force natural pauses where the TTS might otherwise rush through a sentence.
+
+### Output Requirements:
+* Output **only** the TTS-optimized text. 
+* Do not include conversational filler, meta-commentary, or explanations unless explicitly requested by the user.`
 
 type QuestionType = 'screen' | 'general'
 
@@ -918,6 +959,41 @@ export function sanitizeForTTS(text: string): string {
   }
 
   return cleaned
+}
+
+// Converts a finished answer into TTS-friendly spoken text using the separately
+// configured phonetic formatting model. Falls back to the regex cleanup when
+// that model is not configured or the request fails, so speech is never blocked.
+async function formatTextForSpeech(text: string): Promise<string> {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+
+  const settings = getPhoneticAISettings()
+  if (!settings.baseUrl || !settings.apiKey || !settings.modelId) {
+    return sanitizeForTTS(trimmed)
+  }
+
+  try {
+    const { client, model } = createPhoneticClient(settings)
+    const response = await client.chat.completions.create({
+      model,
+      reasoning_effort: 'none' as const,
+      messages: [
+        { role: 'system', content: phoneticFormattingSystemPrompt },
+        { role: 'user', content: trimmed }
+      ]
+    })
+
+    const content = response.choices[0]?.message.content
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      throw new Error('The phonetic model returned an empty response')
+    }
+
+    return sanitizeForTTS(content.trim())
+  } catch (error) {
+    console.error('Phonetic formatting failed; falling back to text cleanup:', error)
+    return sanitizeForTTS(trimmed)
+  }
 }
 
 function parseScreenResponse(content: string): ScreenAIResponse {
@@ -994,7 +1070,7 @@ function parseScreenResponse(content: string): ScreenAIResponse {
   }
 
   return {
-    text: sanitizeForTTS(parsed.text),
+    text: parsed.text.trim(),
     boxes: validatedBoxes
   }
 }
@@ -1061,6 +1137,25 @@ function createLocalVlmClient(): { client: OpenAI; model: string } {
 function createGeneralClient(settings: AIClientSettings): { client: OpenAI; model: string } {
   if (!settings.apiKey) throw new Error('general API key is not configured')
   if (!settings.modelId) throw new Error('general model ID is not configured')
+  return {
+    client: new OpenAI({ baseURL: settings.baseUrl, apiKey: settings.apiKey }),
+    model: settings.modelId
+  }
+}
+
+function getPhoneticAISettings(): AIClientSettings {
+  const settings = getAISettings()
+  return {
+    baseUrl: settings.phoneticBaseUrl,
+    apiKey: settings.phoneticApiKey,
+    modelId: settings.phoneticModelId
+  }
+}
+
+function createPhoneticClient(settings: AIClientSettings): { client: OpenAI; model: string } {
+  if (!settings.baseUrl) throw new Error('phonetic base URL is not configured')
+  if (!settings.apiKey) throw new Error('phonetic API key is not configured')
+  if (!settings.modelId) throw new Error('phonetic model ID is not configured')
   return {
     client: new OpenAI({ baseURL: settings.baseUrl, apiKey: settings.apiKey }),
     model: settings.modelId
@@ -1188,7 +1283,7 @@ async function askGeneral(
           properties: {
             text: {
               type: 'string',
-              description: 'A concise spoken answer phonetically formatted for text-to-speech.'
+              description: 'A concise spoken answer in natural written form.'
             }
           },
           required: ['text']
@@ -1218,7 +1313,7 @@ Regardless of context, always return the exact same JSON object structure. Never
 
   const parsed = JSON.parse(content) as { text: string }
 
-  return { text: sanitizeForTTS(parsed.text), boxes: [] }
+  return { text: parsed.text.trim(), boxes: [] }
 }
 
 async function askQuestion(
@@ -1477,7 +1572,8 @@ app.whenReady().then(() => {
       prompt: request.prompt,
       imageUrl
     })
-    void streamTTS(response, _event.sender).catch((error: unknown) => {
+    const spoken = await formatTextForSpeech(response)
+    void streamTTS(spoken, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
       _event.sender.send('tts:error', { message })
@@ -1518,7 +1614,8 @@ app.whenReady().then(() => {
       history,
       parseRegion('region' in request ? request.region : undefined)
     )
-    void streamTTS(result.text, _event.sender).catch((error: unknown) => {
+    const spoken = await formatTextForSpeech(result.text)
+    void streamTTS(spoken, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
       _event.sender.send('tts:error', { message })
@@ -1559,7 +1656,8 @@ app.whenReady().then(() => {
       history,
       parseRegion('region' in request ? request.region : undefined)
     )
-    void streamTTS(result.text, _event.sender).catch((error: unknown) => {
+    const spoken = await formatTextForSpeech(result.text)
+    void streamTTS(spoken, _event.sender).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TTS playback failed'
       console.error(message)
       _event.sender.send('tts:error', { message })
@@ -1691,10 +1789,38 @@ app.whenReady().then(() => {
       throw new Error('AI base URLs must be valid HTTP or HTTPS URLs')
     }
 
+    const phoneticBaseUrl = 'phoneticBaseUrl' in settings ? settings.phoneticBaseUrl : undefined
+    if (phoneticBaseUrl !== undefined && typeof phoneticBaseUrl !== 'string') {
+      throw new Error('Phonetic base URL must be a string')
+    }
+    const phoneticApiKey = 'phoneticApiKey' in settings ? settings.phoneticApiKey : undefined
+    if (phoneticApiKey !== undefined && typeof phoneticApiKey !== 'string') {
+      throw new Error('Phonetic API key must be a string')
+    }
+    const phoneticModelId = 'phoneticModelId' in settings ? settings.phoneticModelId : undefined
+    if (phoneticModelId !== undefined && typeof phoneticModelId !== 'string') {
+      throw new Error('Phonetic model ID must be a string')
+    }
+
+    const trimmedPhoneticBaseUrl = typeof phoneticBaseUrl === 'string' ? phoneticBaseUrl.trim() : ''
+    if (trimmedPhoneticBaseUrl) {
+      try {
+        const phoneticUrl = new URL(trimmedPhoneticBaseUrl)
+        if (phoneticUrl.protocol !== 'http:' && phoneticUrl.protocol !== 'https:') {
+          throw new Error('unsupported protocol')
+        }
+      } catch {
+        throw new Error('Phonetic base URL must be a valid HTTP or HTTPS URL')
+      }
+    }
+
     const savedSettings = {
       generalBaseUrl: settings.generalBaseUrl.trim(),
       generalApiKey: settings.generalApiKey.trim(),
-      generalModelId: settings.generalModelId.trim()
+      generalModelId: settings.generalModelId.trim(),
+      phoneticBaseUrl: trimmedPhoneticBaseUrl,
+      phoneticApiKey: typeof phoneticApiKey === 'string' ? phoneticApiKey.trim() : '',
+      phoneticModelId: typeof phoneticModelId === 'string' ? phoneticModelId.trim() : ''
     }
     saveAISettings(savedSettings)
     return savedSettings
