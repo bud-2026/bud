@@ -28,6 +28,13 @@
   }
 }
 
+.ask-bar__divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .ask-bar__input {
   min-width: 0;
   flex: 1;

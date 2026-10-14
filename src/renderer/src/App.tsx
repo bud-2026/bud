@@ -28,6 +28,16 @@ function clampToolbarPosition(position: number): number {
   return Math.min(96, Math.max(4, position))
 }
 
+// Matches an optional leading "/" + trigger word (e.g. "/translate" or
+// "translate,") at the start of a question and returns the remaining text.
+// Returns null when the trigger does not match so callers can try others.
+function stripTrigger(text: string, trigger: string): string | null {
+  const escaped = trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`^\\/?${escaped}\\b[\\s,:;\\-]*`, 'i')
+  if (!pattern.test(text)) return null
+  return text.replace(pattern, '').trim()
+}
+
 // Toolbar placement is remembered per display, so docking it on one screen does
 // not move it on the others. Until the display id is known the unscoped legacy
 // key is used as a fallback.
@@ -86,6 +96,8 @@ function App(): React.JSX.Element {
   const [isWriteAnswers, setIsWriteAnswers] = useState(false)
   const [isAskOpen, setIsAskOpen] = useState(false)
   const [askValue, setAskValue] = useState('')
+  const [customPrompts, setCustomPrompts] = useState<CustomPrompt[]>([])
+  const [activePromptId, setActivePromptId] = useState<string | null>(null)
   const [toolbar, setToolbar] = useState<ToolbarState>(readStoredToolbarState)
   const [displayInfo, setDisplayInfo] = useState<{
     displayId: number
@@ -112,6 +124,8 @@ function App(): React.JSX.Element {
   const pendingBoxClearRef = useRef(false)
   const screenConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
   const voiceConversationHistoryRef = useRef<ScreenConversationMessage[]>([])
+  const customPromptsRef = useRef<CustomPrompt[]>([])
+  const activePromptIdRef = useRef<string | null>(null)
 
   // Single source of truth for "is Bud usable". Drives the Status panel banner,
   // gating of the Voice/Debug cards, and the toolbar buttons.
@@ -320,6 +334,11 @@ function App(): React.JSX.Element {
   }, [])
 
   const openAskBar = useCallback((): void => {
+    const prompt = customPromptsRef.current.find(
+      (candidate) => candidate.id === activePromptIdRef.current
+    )
+    const prefill = prompt?.prefill
+    if (prefill) setAskValue((current) => (current.trim() ? current : prefill))
     setIsAskOpen(true)
   }, [])
 
@@ -327,6 +346,52 @@ function App(): React.JSX.Element {
     setIsAskOpen(false)
     setAskValue('')
   }, [])
+
+  // Selecting a prompt (or Default) sets it active and seeds the question inputs
+  // with the prompt's prefilled question so repeated asks are one tap away.
+  const handleSelectPrompt = useCallback((id: string): void => {
+    const nextId = id ? id : null
+    setActivePromptId(nextId)
+    activePromptIdRef.current = nextId
+    const prompt = customPromptsRef.current.find((candidate) => candidate.id === nextId)
+    const prefill = prompt?.prefill ?? ''
+    setAskValue(prefill)
+    setQuestion(prefill)
+  }, [])
+
+  // Keeps the live prompt list in sync when the Prompts settings section saves
+  // or deletes, and clears the active selection if that prompt is gone.
+  const handlePromptsChange = useCallback((list: CustomPrompt[]): void => {
+    setCustomPrompts(list)
+    customPromptsRef.current = list
+    if (
+      activePromptIdRef.current &&
+      !list.some((prompt) => prompt.id === activePromptIdRef.current)
+    ) {
+      activePromptIdRef.current = null
+      setActivePromptId(null)
+    }
+  }, [])
+
+  // Resolves which prompt a question should use. A leading trigger prefix wins
+  // over the picker selection; otherwise the picker's active prompt applies, and
+  // finally the built-in default. Reads refs so it stays referentially stable.
+  const resolvePromptForText = useCallback(
+    (text: string): { id: string | null; text: string } => {
+      const trimmed = text.trim()
+      for (const candidate of customPromptsRef.current) {
+        if (!candidate.trigger) continue
+        const stripped = stripTrigger(trimmed, candidate.trigger)
+        if (stripped === null) continue
+        return { id: candidate.id, text: stripped || candidate.prefill || '' }
+      }
+      if (activePromptIdRef.current) {
+        return { id: activePromptIdRef.current, text: trimmed }
+      }
+      return { id: null, text: trimmed }
+    },
+    []
+  )
 
   const handleToolbarMove = useCallback((edge: ToolbarEdge, position: number): void => {
     const next = { edge, position }
@@ -507,6 +572,22 @@ function App(): React.JSX.Element {
       disposed = true
     }
   }, [])
+  // Custom prompt presets are read once on mount; the Prompts settings section
+  // keeps this list in sync through onPromptsChange.
+  useEffect(() => {
+    let disposed = false
+    void window.api.prompts
+      .list()
+      .then((list) => {
+        if (!disposed) handlePromptsChange(list)
+      })
+      .catch(() => {
+        // Prompts are optional; asking falls back to the built-in prompt.
+      })
+    return () => {
+      disposed = true
+    }
+  }, [handlePromptsChange])
   useEffect(() => {
     let disposed = false
     void window.api.vl
@@ -601,19 +682,22 @@ function App(): React.JSX.Element {
           setVoiceTranscript(userText)
           setQuestion(userText)
           setVoiceStatus('Analyzing voice question...')
+          const resolved = resolvePromptForText(userText)
+          const questionText = resolved.text || userText
           setIsLoading(true)
           isLoadingRef.current = true
           pendingBoxClearRef.current = true
           setError(null)
           void askQuestion(
-            userText,
+            questionText,
             voiceConversationHistoryRef.current,
-            regionRef.current ?? undefined
+            regionRef.current ?? undefined,
+            resolved.id ?? undefined
           )
             .then((screenResponse) => {
               voiceConversationHistoryRef.current = [
                 ...voiceConversationHistoryRef.current,
-                { role: 'user' as const, content: userText },
+                { role: 'user' as const, content: questionText },
                 { role: 'assistant' as const, content: screenResponse.text }
               ].slice(-VOICE_HISTORY_MESSAGE_LIMIT)
               setResult(screenResponse)
@@ -656,6 +740,7 @@ function App(): React.JSX.Element {
       clearVoiceInactivityTimer,
       hideOrbWithAnimation,
       resetVoiceInactivityTimer,
+      resolvePromptForText,
       setOrbState
     ]
   )
@@ -732,8 +817,11 @@ function App(): React.JSX.Element {
   }, [clearVoiceInactivityTimer, hideOrbWithAnimation, resetVoiceInactivityTimer, setOrbState])
 
   const submitQuestion = useCallback(
-    async (prompt: string): Promise<void> => {
+    async (rawPrompt: string): Promise<void> => {
       if (isLoadingRef.current) return
+
+      const { id, text } = resolvePromptForText(rawPrompt)
+      if (!text) return
 
       setIsLoading(true)
       isLoadingRef.current = true
@@ -743,13 +831,14 @@ function App(): React.JSX.Element {
       pendingBoxClearRef.current = true
       try {
         const screenResponse = await askQuestion(
-          prompt,
+          text,
           screenConversationHistoryRef.current,
-          regionRef.current ?? undefined
+          regionRef.current ?? undefined,
+          id ?? undefined
         )
         screenConversationHistoryRef.current = [
           ...screenConversationHistoryRef.current,
-          { role: 'user' as const, content: prompt },
+          { role: 'user' as const, content: text },
           { role: 'assistant' as const, content: screenResponse.text }
         ].slice(-8)
         setResult(screenResponse)
@@ -761,7 +850,7 @@ function App(): React.JSX.Element {
         isLoadingRef.current = false
       }
     },
-    [setOrbState]
+    [resolvePromptForText, setOrbState]
   )
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -845,6 +934,9 @@ function App(): React.JSX.Element {
           onSubmit={submitAsk}
           onClose={closeAskBar}
           disabled={isLoading}
+          prompts={customPrompts}
+          activePromptId={activePromptId}
+          onSelectPrompt={handleSelectPrompt}
         />
       )}
       <SettingsPanel
@@ -874,6 +966,10 @@ function App(): React.JSX.Element {
         onError={setError}
         onQuit={quitApp}
         onOpenGuide={openGuide}
+        customPrompts={customPrompts}
+        activePromptId={activePromptId}
+        onSelectPrompt={handleSelectPrompt}
+        onPromptsChange={handlePromptsChange}
       />
       {result?.boxes.map((box, index) => (
         <Indicator

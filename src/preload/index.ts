@@ -33,6 +33,36 @@ interface AISettings {
   phoneticUseLocal: boolean
 }
 
+type SpeechMode = 'field' | 'fixed' | 'template'
+type LabelMode = 'fixed' | 'template'
+
+interface SpeechMapping {
+  mode: SpeechMode
+  value: string
+}
+
+interface LabelMapping {
+  mode: LabelMode
+  value: string
+}
+
+interface CustomPromptFields {
+  speech: SpeechMapping
+  copy?: string
+  label?: LabelMapping
+}
+
+interface CustomPrompt {
+  id: string
+  name: string
+  trigger?: string
+  systemPrompt: string
+  schema: Record<string, unknown>
+  fields: CustomPromptFields
+  useScreen: boolean
+  prefill?: string
+}
+
 interface TTSStartEvent {
   requestId: string
   sampleRate: number
@@ -106,9 +136,10 @@ const api = {
     askQuestion: (
       prompt: string,
       history?: ScreenConversationMessage[],
-      region?: Region
+      region?: Region,
+      customPromptId?: string
     ): Promise<ScreenAIResponse> =>
-      ipcRenderer.invoke('ai:ask-question', { prompt, history, region }),
+      ipcRenderer.invoke('ai:ask-question', { prompt, history, region, customPromptId }),
     askScreen: (
       prompt: string,
       history?: ScreenConversationMessage[],
@@ -212,6 +243,12 @@ const api = {
     getAI: (): Promise<AISettings> => ipcRenderer.invoke('settings:get-ai'),
     saveAI: (settings: AISettings): Promise<AISettings> =>
       ipcRenderer.invoke('settings:save-ai', settings)
+  },
+  prompts: {
+    list: (): Promise<CustomPrompt[]> => ipcRenderer.invoke('prompts:list'),
+    save: (prompt: CustomPrompt): Promise<CustomPrompt[]> =>
+      ipcRenderer.invoke('prompts:save', prompt),
+    remove: (id: string): Promise<CustomPrompt[]> => ipcRenderer.invoke('prompts:delete', id)
   },
   guide: {
     getSeen: (): Promise<boolean> => ipcRenderer.invoke('guide:get-seen'),

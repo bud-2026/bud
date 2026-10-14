@@ -37,6 +37,42 @@ declare global {
     phoneticUseLocal: boolean
   }
 
+  type SpeechMode = 'field' | 'fixed' | 'template'
+  type LabelMode = 'fixed' | 'template'
+
+  interface SpeechMapping {
+    mode: SpeechMode
+    value: string
+  }
+
+  interface LabelMapping {
+    mode: LabelMode
+    value: string
+  }
+
+  interface CustomPromptFields {
+    speech: SpeechMapping
+    /** Schema field whose value becomes the copy button content. */
+    copy?: string
+    /** Indicator label; defaults to the prompt name when omitted with a copy field. */
+    label?: LabelMapping
+  }
+
+  /** A user-authored prompt preset replacing the built-in system prompt and schema. */
+  interface CustomPrompt {
+    id: string
+    name: string
+    /** Optional prefix (e.g. "translate") that activates this prompt for one question. */
+    trigger?: string
+    systemPrompt: string
+    schema: Record<string, unknown>
+    fields: CustomPromptFields
+    /** true = send the screenshot/region (vision); false = general model only. */
+    useScreen: boolean
+    /** Default question text offered when this prompt is selected. */
+    prefill?: string
+  }
+
   type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
 
   interface VlComponentStatus {
@@ -79,7 +115,8 @@ declare global {
       askQuestion: (
         prompt: string,
         history?: ScreenConversationMessage[],
-        region?: Region
+        region?: Region,
+        customPromptId?: string
       ) => Promise<ScreenAIResponse>
       askScreen: (
         prompt: string,
@@ -139,6 +176,11 @@ declare global {
     settings: {
       getAI: () => Promise<AISettings>
       saveAI: (settings: AISettings) => Promise<AISettings>
+    }
+    prompts: {
+      list: () => Promise<CustomPrompt[]>
+      save: (prompt: CustomPrompt) => Promise<CustomPrompt[]>
+      remove: (id: string) => Promise<CustomPrompt[]>
     }
     guide: {
       getSeen: () => Promise<boolean>

@@ -13,7 +13,8 @@ export function askScreen(
 export function askQuestion(
   prompt: string,
   history?: ScreenConversationMessage[],
-  region?: Region
+  region?: Region,
+  customPromptId?: string
 ): Promise<ScreenAIResponse> {
-  return window.api.ai.askQuestion(prompt, history, region)
+  return window.api.ai.askQuestion(prompt, history, region, customPromptId)
 }

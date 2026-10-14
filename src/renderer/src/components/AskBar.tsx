@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import PromptPicker from './PromptPicker'
 import './AskBar.css'
 
 interface AskBarProps {
@@ -7,9 +8,21 @@ interface AskBarProps {
   onSubmit: () => void
   onClose: () => void
   disabled: boolean
+  prompts: CustomPrompt[]
+  activePromptId: string | null
+  onSelectPrompt: (id: string) => void
 }
 
-function AskBar({ value, onChange, onSubmit, onClose, disabled }: AskBarProps): React.JSX.Element {
+function AskBar({
+  value,
+  onChange,
+  onSubmit,
+  onClose,
+  disabled,
+  prompts,
+  activePromptId,
+  onSelectPrompt
+}: AskBarProps): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -27,6 +40,13 @@ function AskBar({ value, onChange, onSubmit, onClose, disabled }: AskBarProps): 
         onSubmit()
       }}
     >
+      <PromptPicker
+        prompts={prompts}
+        value={activePromptId}
+        onChange={onSelectPrompt}
+        disabled={disabled}
+      />
+      {activePromptId && <span className="ask-bar__divider" aria-hidden="true" />}
       <input
         ref={inputRef}
         className="ask-bar__input"

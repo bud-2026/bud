@@ -1,0 +1,135 @@
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  gap: 6px;
+  list-style: none;
+}
+
+.question-panel button.prompt-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.05);
+  text-align: left;
+  font-weight: 600;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.question-panel button.prompt-list__item:hover {
+  border-color: rgba(99, 230, 190, 0.5);
+  background: rgba(99, 230, 190, 0.12);
+}
+
+.prompt-list__name {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+}
+
+.prompt-list__meta {
+  flex: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.prompt-row {
+  display: flex;
+  gap: 8px;
+}
+
+.prompt-row input {
+  flex: 1;
+}
+
+.question-panel textarea.prompt-textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  user-select: text;
+}
+
+.question-panel textarea.prompt-textarea--code {
+  font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  white-space: pre;
+}
+
+.question-panel textarea.prompt-textarea:focus-visible {
+  border-color: #63e6be;
+  box-shadow: 0 0 0 3px rgba(99, 230, 190, 0.18);
+}
+
+.question-panel textarea.prompt-textarea:disabled {
+  color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.prompt-radios {
+  display: flex;
+  gap: 14px;
+}
+
+.question-panel .prompt-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.prompt-radio input[type='radio'] {
+  margin: 0;
+  accent-color: #63e6be;
+}
+
+.question-panel select.prompt-select {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  height: 42px;
+  padding: 0 10px;
+  outline: none;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.question-panel select.prompt-select option {
+  color: #111;
+  background: #fff;
+}
+
+.question-panel select.prompt-select:focus-visible {
+  border-color: #63e6be;
+  box-shadow: 0 0 0 3px rgba(99, 230, 190, 0.18);
+}
+
+.prompt-hint--error {
+  color: #ff9b9b;
+}

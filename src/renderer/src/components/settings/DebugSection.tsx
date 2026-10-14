@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react'
+import PromptPicker from '../PromptPicker'
 
 interface DebugSectionProps {
   voiceStatus: string
@@ -14,6 +15,9 @@ interface DebugSectionProps {
   isLoading: boolean
   result: ScreenAIResponse | null
   voiceTranscript: string
+  prompts: CustomPrompt[]
+  activePromptId: string | null
+  onSelectPrompt: (id: string) => void
 }
 
 function DebugSection({
@@ -29,7 +33,10 @@ function DebugSection({
   onAskSubmit,
   isLoading,
   result,
-  voiceTranscript
+  voiceTranscript,
+  prompts,
+  activePromptId,
+  onSelectPrompt
 }: DebugSectionProps): React.JSX.Element {
   return (
     <form className="question-panel" onSubmit={onAskSubmit}>
@@ -68,6 +75,13 @@ function DebugSection({
         </span>
       </div>
       <div className="question-panel__controls">
+        <PromptPicker
+          prompts={prompts}
+          value={activePromptId}
+          onChange={onSelectPrompt}
+          disabled={isLoading}
+          variant="panel"
+        />
         <input
           id="screen-question"
           value={question}

@@ -6,6 +6,12 @@ import {
   parseRegion,
   type ScreenConversationMessage
 } from './ai'
+import {
+  deleteCustomPrompt,
+  getCustomPrompt,
+  listCustomPrompts,
+  saveCustomPrompt
+} from './customPrompts'
 import { getVlStatus } from './localVlm'
 import { getDisplayForWindow, isOverlayWindow, registerOverlayIpc, setVoiceWindow } from './overlay'
 import {
@@ -130,11 +136,25 @@ export function registerIpcHandlers(): void {
     const { prompt, fields } = requirePrompt(request, 'Question')
     const history = requireHistory(fields, 'Question')
 
+    const customPromptId = 'customPromptId' in fields ? fields.customPromptId : undefined
+    if (
+      customPromptId !== undefined &&
+      (typeof customPromptId !== 'string' || customPromptId.trim().length === 0)
+    ) {
+      throw new Error('Question customPromptId must be a non-empty string')
+    }
+    const customPrompt =
+      typeof customPromptId === 'string' ? getCustomPrompt(customPromptId.trim()) : undefined
+    if (typeof customPromptId === 'string' && !customPrompt) {
+      throw new Error('The selected custom prompt no longer exists')
+    }
+
     const result = await askQuestion(
       prompt,
       history,
       parseRegion('region' in fields ? fields.region : undefined),
-      getDisplayForWindow(BrowserWindow.fromWebContents(_event.sender))
+      getDisplayForWindow(BrowserWindow.fromWebContents(_event.sender)),
+      customPrompt
     )
     await speakResult(result.text, _event.sender)
     return result
@@ -223,6 +243,17 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('settings:get-ai', () => getAISettings())
+
+  ipcMain.handle('prompts:list', () => listCustomPrompts())
+
+  ipcMain.handle('prompts:save', (_event, prompt: unknown) => saveCustomPrompt(prompt))
+
+  ipcMain.handle('prompts:delete', (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('Custom prompt id must be a non-empty string')
+    }
+    return deleteCustomPrompt(id.trim())
+  })
 
   ipcMain.handle('guide:get-seen', () => getGuideSeen())
 

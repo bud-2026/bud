@@ -1,5 +1,6 @@
 import { desktopCapturer, type Display } from 'electron'
 import OpenAI from 'openai'
+import type { CustomPrompt, SpeechMapping } from './customPrompts'
 import { VL_MODEL_ALIAS, ensureLocalVlmReady, getLocalVlmBaseUrl } from './localVlm'
 import { getTargetDisplay } from './overlay'
 import { generalSystemPrompt, questionClassificationSystemPrompt, systemPrompt } from './prompts'
@@ -72,40 +73,17 @@ export function createPhoneticClient(settings: AISettings): { client: OpenAI; mo
   }
 }
 
-export function parseScreenResponse(content: string): ScreenAIResponse {
-  const cleanedContent = content
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim()
-  const firstObject = cleanedContent.indexOf('{')
-  const lastObject = cleanedContent.lastIndexOf('}')
-  const jsonContent =
-    firstObject >= 0 && lastObject > firstObject
-      ? cleanedContent.slice(firstObject, lastObject + 1)
-      : cleanedContent
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(jsonContent)
-  } catch {
-    console.error('Failed to parse AI response as JSON:', jsonContent)
-    throw new Error('The AI returned an invalid screen analysis response')
-  }
-
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    !('text' in parsed) ||
-    typeof parsed.text !== 'string' ||
-    !('boxes' in parsed) ||
-    !Array.isArray(parsed.boxes)
-  ) {
-    throw new Error('The AI returned an invalid screen analysis shape')
+// Validates an array of `{ label, copy, bbox }` entries returned by the model.
+// Shared by the built-in screen analysis and custom prompts that expose their
+// own `boxes` field.
+export function validateBoxes(value: unknown): BoundingBox[] {
+  if (!Array.isArray(value)) {
+    throw new Error('The AI returned an invalid boxes array')
   }
 
   const validatedBoxes: BoundingBox[] = []
 
-  for (const box of parsed.boxes) {
+  for (const box of value) {
     if (
       typeof box !== 'object' ||
       box === null ||
@@ -145,9 +123,43 @@ export function parseScreenResponse(content: string): ScreenAIResponse {
     })
   }
 
+  return validatedBoxes
+}
+
+export function parseScreenResponse(content: string): ScreenAIResponse {
+  const cleanedContent = content
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+  const firstObject = cleanedContent.indexOf('{')
+  const lastObject = cleanedContent.lastIndexOf('}')
+  const jsonContent =
+    firstObject >= 0 && lastObject > firstObject
+      ? cleanedContent.slice(firstObject, lastObject + 1)
+      : cleanedContent
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonContent)
+  } catch {
+    console.error('Failed to parse AI response as JSON:', jsonContent)
+    throw new Error('The AI returned an invalid screen analysis response')
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('text' in parsed) ||
+    typeof parsed.text !== 'string' ||
+    !('boxes' in parsed) ||
+    !Array.isArray(parsed.boxes)
+  ) {
+    throw new Error('The AI returned an invalid screen analysis shape')
+  }
+
   return {
     text: parsed.text.trim(),
-    boxes: validatedBoxes
+    boxes: validateBoxes(parsed.boxes)
   }
 }
 
@@ -347,12 +359,173 @@ Regardless of context, always return the exact same JSON object structure. Never
   return { text: parsed.text.trim(), boxes: [] }
 }
 
-export async function askQuestion(
+function asResultRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('The AI returned an invalid custom response shape')
+  }
+  return value as Record<string, unknown>
+}
+
+// Substitutes {field} placeholders in a template with values from the result.
+function resolveTemplate(template: string, result: Record<string, unknown>): string {
+  return template
+    .replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key: string) => {
+      const value = result[key]
+      if (value === undefined || value === null) return ''
+      return typeof value === 'string' ? value : JSON.stringify(value)
+    })
+    .trim()
+}
+
+function resolveResultField(result: Record<string, unknown>, field: string): string {
+  const value = result[field]
+  if (value === undefined || value === null) {
+    throw new Error(`The AI response is missing the mapped field "${field}"`)
+  }
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function resolveSpeech(mapping: SpeechMapping, result: Record<string, unknown>): string {
+  if (mapping.mode === 'fixed') return mapping.value.trim()
+  if (mapping.mode === 'field') return resolveResultField(result, mapping.value)
+  const resolved = resolveTemplate(mapping.value, result)
+  if (!resolved) {
+    throw new Error('The AI response could not be resolved into a spoken answer')
+  }
+  return resolved
+}
+
+// Maps a custom prompt's free-form model result onto the app's { text, boxes }
+// contract: speech comes from the mapping, and an indicator carrying the copy
+// value is synthesized over the selected region (or the full screen).
+function buildCustomBoxes(
+  customPrompt: CustomPrompt,
+  result: Record<string, unknown>,
+  region?: Region
+): BoundingBox[] {
+  // A prompt whose schema defines its own `boxes` keeps full control.
+  if ('boxes' in result && Array.isArray(result.boxes)) {
+    const boxes = validateBoxes(result.boxes)
+    return region ? remapBoxesToScreen(boxes, region) : boxes
+  }
+
+  const { copy, label } = customPrompt.fields
+  if (!copy && !label) return []
+
+  const labelText = label
+    ? label.mode === 'fixed'
+      ? label.value
+      : resolveTemplate(label.value, result)
+    : customPrompt.name
+  const copyValue = copy ? resolveResultField(result, copy) : undefined
+
+  const bbox: [number, number, number, number] = region
+    ? [
+        Math.round(region.x),
+        Math.round(region.y),
+        Math.round(region.x + region.width),
+        Math.round(region.y + region.height)
+      ]
+    : [0, 0, 1000, 1000]
+
+  return [
+    {
+      label: labelText || customPrompt.name,
+      ...(copyValue !== undefined ? { copy: copyValue } : {}),
+      bbox
+    }
+  ]
+}
+
+export async function askCustomPrompt(
   prompt: string,
+  customPrompt: CustomPrompt,
   history: ScreenConversationMessage[] = [],
   region?: Region,
   display?: Display
 ): Promise<ScreenAIResponse> {
+  const settings = getAISettings()
+
+  let client: OpenAI
+  let model: string
+  let imageUrl: string | undefined
+
+  if (customPrompt.useScreen) {
+    await ensureLocalVlmReady()
+    ;({ client, model } = createLocalVlmClient())
+    imageUrl = await captureDisplay(display ?? getTargetDisplay(), region)
+  } else {
+    if (settings.generalUseLocal) await ensureLocalVlmReady()
+    ;({ client, model } = createGeneralClient(settings))
+  }
+
+  const response = await client.chat.completions.create({
+    model,
+    // reasoning_effort only applies to the hosted reasoning models.
+    ...(customPrompt.useScreen || settings.generalUseLocal
+      ? {}
+      : { reasoning_effort: 'none' as const }),
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'custom_response',
+        strict: true,
+        schema: customPrompt.schema
+      }
+    },
+    messages: [
+      {
+        role: 'system',
+        content: `${customPrompt.systemPrompt}
+
+Prior messages in this conversation may or may not be related to the user's current request.
+Use prior messages to resolve references (such as "that", "it", or "the previous item") only if the request depends on them; otherwise, process the new request independently.
+Regardless of context, always return the exact same JSON object structure. Never return plain conversational text.`
+      },
+      ...history,
+      {
+        role: 'user',
+        content: imageUrl
+          ? [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: imageUrl } }
+            ]
+          : prompt
+      }
+    ]
+  })
+
+  const content = response.choices[0]?.message.content
+  if (!content || typeof content !== 'string') {
+    throw new Error('The AI returned an empty custom response')
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    console.error('Failed to parse custom AI response as JSON:', content)
+    throw new Error('The AI returned an invalid custom response')
+  }
+
+  const result = asResultRecord(parsed)
+  return {
+    text: resolveSpeech(customPrompt.fields.speech, result),
+    boxes: buildCustomBoxes(customPrompt, result, region)
+  }
+}
+
+export async function askQuestion(
+  prompt: string,
+  history: ScreenConversationMessage[] = [],
+  region?: Region,
+  display?: Display,
+  customPrompt?: CustomPrompt
+): Promise<ScreenAIResponse> {
+  if (customPrompt) {
+    return askCustomPrompt(prompt, customPrompt, history, region, display)
+  }
+
   const questionType = await classifyQuestion(prompt, history)
   return questionType === 'screen'
     ? askAboutScreen(prompt, history, region, display)
