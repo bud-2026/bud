@@ -29,8 +29,8 @@ function sanitizeForTTS(text: string): string {
   // 5. Remove any character that is NOT a letter, number, white-space, or speech punctuation
   // Preserved punctuation: . , ! ? - and conditionally '
   const allowedCharsRegex = preserveContractions
-    ? /[^a-zA-Target-zA-Z0-9\s.,!?'\-]/g
-    : /[^a-zA-Target-zA-Z0-9\s.,!?\-]/g
+    ? /[^a-zA-Z0-9\s.,!?'\-]/g
+    : /[^a-zA-Z0-9\s.,!?\-]/g
 
   cleaned = cleaned.replace(allowedCharsRegex, '')
 
@@ -44,6 +44,18 @@ function sanitizeForTTS(text: string): string {
   }
 
   return cleaned
+}
+
+// Delimiters that separate the payload from the instructions in the phonetic
+// formatting prompt. The system prompt treats everything inside these tags as
+// inert data, so any stray copies already present in the text are stripped to
+// prevent the payload from closing the tag early.
+const TEXT_TO_NORMALIZE_OPEN = '<text_to_normalize>'
+const TEXT_TO_NORMALIZE_CLOSE = '</text_to_normalize>'
+
+function wrapForNormalization(text: string): string {
+  const safe = text.replaceAll(TEXT_TO_NORMALIZE_OPEN, '').replaceAll(TEXT_TO_NORMALIZE_CLOSE, '')
+  return `${TEXT_TO_NORMALIZE_OPEN}\n${safe}\n${TEXT_TO_NORMALIZE_CLOSE}`
 }
 
 // Converts a finished answer into TTS-friendly spoken text using the separately
@@ -72,7 +84,7 @@ export async function formatTextForSpeech(text: string): Promise<string> {
       ...(useLocal ? {} : { reasoning_effort: 'none' as const }),
       messages: [
         { role: 'system', content: phoneticFormattingSystemPrompt },
-        { role: 'user', content: trimmed }
+        { role: 'user', content: wrapForNormalization(trimmed) }
       ]
     })
 
