@@ -33,6 +33,42 @@ interface AISettings {
   phoneticUseLocal: boolean
 }
 
+interface PromptExample {
+  name: string
+  body: string
+}
+
+interface PromptPresetFields {
+  intro: string
+  textRules: string
+  boxesRules: string
+  closingRules: string
+  textDescription: string
+  boxesDescription: string
+  labelDescription: string
+  copyDescription: string
+  bboxDescription: string
+  examples: PromptExample[]
+}
+
+interface PromptPreset extends PromptPresetFields {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+}
+
+type PromptPresetInput = Omit<PromptPreset, 'id' | 'builtin'> & { id?: string }
+
+interface PromptStoreSnapshot {
+  presets: PromptPreset[]
+  activePresetId: string
+}
+
+interface PromptSaveResult extends PromptStoreSnapshot {
+  savedPresetId: string
+}
+
 interface TTSStartEvent {
   requestId: string
   sampleRate: number
@@ -212,6 +248,14 @@ const api = {
     getAI: (): Promise<AISettings> => ipcRenderer.invoke('settings:get-ai'),
     saveAI: (settings: AISettings): Promise<AISettings> =>
       ipcRenderer.invoke('settings:save-ai', settings)
+  },
+  prompts: {
+    get: (): Promise<PromptStoreSnapshot> => ipcRenderer.invoke('prompts:get'),
+    save: (preset: PromptPresetInput): Promise<PromptSaveResult> =>
+      ipcRenderer.invoke('prompts:save', preset),
+    delete: (id: string): Promise<PromptStoreSnapshot> => ipcRenderer.invoke('prompts:delete', id),
+    setActive: (id: string): Promise<PromptStoreSnapshot> =>
+      ipcRenderer.invoke('prompts:set-active', id)
   },
   guide: {
     getSeen: (): Promise<boolean> => ipcRenderer.invoke('guide:get-seen'),

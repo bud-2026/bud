@@ -9,6 +9,12 @@ import {
 import { getVlStatus } from './localVlm'
 import { getDisplayForWindow, isOverlayWindow, registerOverlayIpc, setVoiceWindow } from './overlay'
 import {
+  deletePromptPreset,
+  getPromptStoreSnapshot,
+  savePromptPreset,
+  setActivePromptPreset
+} from './promptStore'
+import {
   getAISettings,
   getGuideSeen,
   getTtsVoice,
@@ -223,6 +229,24 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('settings:get-ai', () => getAISettings())
+
+  ipcMain.handle('prompts:get', () => getPromptStoreSnapshot())
+
+  ipcMain.handle('prompts:save', (_event, preset: unknown) => savePromptPreset(preset))
+
+  ipcMain.handle('prompts:delete', (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('Prompt preset id must be a non-empty string')
+    }
+    return deletePromptPreset(id.trim())
+  })
+
+  ipcMain.handle('prompts:set-active', (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('Prompt preset id must be a non-empty string')
+    }
+    return setActivePromptPreset(id.trim())
+  })
 
   ipcMain.handle('guide:get-seen', () => getGuideSeen())
 

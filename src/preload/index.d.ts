@@ -37,6 +37,42 @@ declare global {
     phoneticUseLocal: boolean
   }
 
+  interface PromptExample {
+    name: string
+    body: string
+  }
+
+  interface PromptPresetFields {
+    intro: string
+    textRules: string
+    boxesRules: string
+    closingRules: string
+    textDescription: string
+    boxesDescription: string
+    labelDescription: string
+    copyDescription: string
+    bboxDescription: string
+    examples: PromptExample[]
+  }
+
+  interface PromptPreset extends PromptPresetFields {
+    id: string
+    name: string
+    description: string
+    builtin: boolean
+  }
+
+  type PromptPresetInput = Omit<PromptPreset, 'id' | 'builtin'> & { id?: string }
+
+  interface PromptStoreSnapshot {
+    presets: PromptPreset[]
+    activePresetId: string
+  }
+
+  interface PromptSaveResult extends PromptStoreSnapshot {
+    savedPresetId: string
+  }
+
   type VlPhase = 'pending' | 'downloading' | 'downloaded' | 'starting' | 'ready' | 'error'
 
   interface VlComponentStatus {
@@ -139,6 +175,12 @@ declare global {
     settings: {
       getAI: () => Promise<AISettings>
       saveAI: (settings: AISettings) => Promise<AISettings>
+    }
+    prompts: {
+      get: () => Promise<PromptStoreSnapshot>
+      save: (preset: PromptPresetInput) => Promise<PromptSaveResult>
+      delete: (id: string) => Promise<PromptStoreSnapshot>
+      setActive: (id: string) => Promise<PromptStoreSnapshot>
     }
     guide: {
       getSeen: () => Promise<boolean>

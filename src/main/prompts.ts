@@ -1,36 +1,90 @@
-export const systemPrompt = `
-You are Bud, a friendly, intelligent, and direct voice assistant. You assist users with general information and help them read, analyze, or locate items on their screen.
+// ---------------------------------------------------------------------------
+// Screen-analysis prompt presets
+//
+// The screen prompt is the system message sent to the bundled vision model
+// when a question is routed to the screen. Its response shape is fixed: the
+// model always answers with JSON shaped like { "boxes": [...], "text": "..." }.
+// A preset keeps the parts users may want to tune (persona/voice rules for the
+// "text" field, visual-grounding rules for the "boxes" array, the JSON schema
+// descriptions, and example outputs) so they can be edited and reused.
+// ---------------------------------------------------------------------------
 
-CRITICAL INSTRUCTIONS:
-1. VOICE & PERSONALITY ("text"):
-   - Speak as Bud: warm, direct, helpful, and natural.
+export const DEFAULT_PROMPT_PRESET_ID = 'default'
+
+/** A single example output block shown in the prompt to steer the response. */
+export interface PromptExample {
+  name: string
+  body: string
+}
+
+/** The editable, human-facing parts of a screen prompt. */
+export interface PromptPresetFields {
+  /** Opening "You are Bud..." line. */
+  intro: string
+  /** Rules for the spoken "text" field. */
+  textRules: string
+  /** Rules for the "boxes" array (visual grounding). */
+  boxesRules: string
+  /** Closing rule about when an empty "boxes" array is allowed. */
+  closingRules: string
+  /** Schema description for the "text" property. */
+  textDescription: string
+  /** Schema description for the "boxes" property. */
+  boxesDescription: string
+  /** Schema description for a box's "label" property. */
+  labelDescription: string
+  /** Schema description for a box's "copy" property. */
+  copyDescription: string
+  /** Schema description for a box's "bbox" property. */
+  bboxDescription: string
+  /** Example outputs appended to the prompt. */
+  examples: PromptExample[]
+}
+
+/** A named, reusable screen-analysis prompt. */
+export interface PromptPreset extends PromptPresetFields {
+  id: string
+  name: string
+  description: string
+  /** Built-in presets are read-only and always available. */
+  builtin: boolean
+}
+
+/** The fields a caller supplies when creating or updating a preset. */
+export type PromptPresetInput = Omit<PromptPreset, 'id' | 'builtin'> & { id?: string }
+
+// The default preset reproduces the prompt Bud has always shipped with, so an
+// untouched install behaves exactly as before.
+export const DEFAULT_PROMPT_PRESET: PromptPreset = {
+  id: DEFAULT_PROMPT_PRESET_ID,
+  name: 'Default',
+  description: 'Balanced voice answers with visual grounding boxes.',
+  builtin: true,
+  intro:
+    'You are Bud, a friendly, intelligent, and direct voice assistant. You assist users with general information and help them read, analyze, or locate items on their screen.',
+  textRules: `   - Speak as Bud: warm, direct, helpful, and natural.
    - Limit answers strictly to what was asked without volunteer trivia or unnecessary details.
    - For capability/permission questions (e.g., "Can you..."), vary your starting response naturally using context-neutral openers (e.g., "Yes,", "Sure,", "I've got it,", "Absolutely,"). Never repeat the same opener consecutively.
-   - For direct factual or visual-reading requests (e.g., "Bud, what time is it?", "Read the title"), state the answer directly without introductory filler.
-
-2. VISUAL GROUNDING ("boxes") - STRICT MANDATE:
-   - IF YOU MENTION OR DESCRIBE ANY VISUAL ELEMENT, TEXT BLOCK, BUTTON, ICON, OR UI REGION IN YOUR "text" FIELD, YOU MUST INCLUDE ITS BOUNDING BOX IN THE "boxes" ARRAY.
+   - For direct factual or visual-reading requests (e.g., "Bud, what time is it?", "Read the title"), state the answer directly without introductory filler.`,
+  boxesRules: `   - IF YOU MENTION OR DESCRIBE ANY VISUAL ELEMENT, TEXT BLOCK, BUTTON, ICON, OR UI REGION IN YOUR "text" FIELD, YOU MUST INCLUDE ITS BOUNDING BOX IN THE "boxes" ARRAY.
    - NEVER leave the "boxes" array empty if your spoken text answers a screen-based or visual query.
    - For each box, specify the "label" and "copy" text FIRST, then output the "bbox" coordinates.
    - Set "copy" to null UNLESS the user explicitly asks to copy, read, extract, or transcribe text. When text extraction IS requested, include the exact, raw text in "copy" (with original symbols, numbers, and formatting).
    - Bounding box coordinates MUST follow native [xmin, ymin, xmax, ymax] format normalized on a 1000x1000 grid (integers 0 to 1000).
    - Top-left is [0, 0] and bottom-right is [1000, 1000].
-   - Do NOT use percentages, decimals, pixel dimensions, or [ymin, xmin, ymax, xmax] order.
-
-JSON Schema:
-{
-  "boxes": [
+   - Do NOT use percentages, decimals, pixel dimensions, or [ymin, xmin, ymax, xmax] order.`,
+  closingRules:
+    'Use an empty "boxes" array ONLY when the user\'s question is completely unrelated to the screen image (e.g., general knowledge queries). Respond strictly with raw JSON.',
+  textDescription: 'spoken response in natural written form',
+  boxesDescription:
+    'List of visual bounding boxes matching elements mentioned in text. Must not be empty if visual elements are identified.',
+  labelDescription: 'descriptive label matching the spoken text',
+  copyDescription: 'exact raw text extracted ONLY if requested by user, otherwise null',
+  bboxDescription: 'Bounding box coordinates normalized to 0-1000 grid: [xmin, ymin, xmax, ymax].',
+  examples: [
     {
-      "label": "descriptive label matching the spoken text",
-      "copy": "exact raw text extracted ONLY if requested by user, otherwise null",
-      "bbox": [xmin, ymin, xmax, ymax]
-    }
-  ],
-  "text": "spoken response in natural written form"
-}
-
-Example Output (General Localization - No copy requested):
-{
+      name: 'General Localization - No copy requested',
+      body: `{
   "boxes": [
     {
       "label": "submit button",
@@ -39,10 +93,11 @@ Example Output (General Localization - No copy requested):
     }
   ],
   "text": "There is a submit button in the top right."
-}
-
-Example Output (Text Extraction Requested):
-{
+}`
+    },
+    {
+      name: 'Text Extraction Requested',
+      body: `{
   "boxes": [
     {
       "label": "meeting start time",
@@ -51,10 +106,54 @@ Example Output (Text Extraction Requested):
     }
   ],
   "text": "The meeting starts at 3:30 PM."
+}`
+    }
+  ]
 }
 
-Use an empty "boxes" array ONLY when the user's question is completely unrelated to the screen image (e.g., general knowledge queries). Respond strictly with raw JSON.
-`
+// Renders the JSON Schema block embedded in the prompt. The "bbox" line stays
+// literal because it communicates the coordinate format, not a description.
+export function buildPromptSchemaBlock(preset: PromptPresetFields): string {
+  return `{
+  "boxes": [
+    {
+      "label": ${JSON.stringify(preset.labelDescription.trim())},
+      "copy": ${JSON.stringify(preset.copyDescription.trim())},
+      "bbox": [xmin, ymin, xmax, ymax]
+    }
+  ],
+  "text": ${JSON.stringify(preset.textDescription.trim())}
+}`
+}
+
+// Composes the full system prompt for screen analysis from a preset. This is
+// the exact text sent to the vision model.
+export function buildScreenSystemPrompt(preset: PromptPresetFields): string {
+  const examplesBlock = preset.examples
+    .map((example) => ({ name: example.name.trim(), body: example.body.trim() }))
+    .filter((example) => example.name.length > 0 && example.body.length > 0)
+    .map((example) => `Example Output (${example.name}):\n${example.body}`)
+    .join('\n\n')
+
+  const sections = [
+    preset.intro.trim(),
+    `CRITICAL INSTRUCTIONS:
+1. VOICE & PERSONALITY ("text"):
+${preset.textRules.trim()}
+
+2. VISUAL GROUNDING ("boxes") - STRICT MANDATE:
+${preset.boxesRules.trim()}`,
+    `JSON Schema:\n${buildPromptSchemaBlock(preset)}`
+  ]
+
+  if (examplesBlock) sections.push(examplesBlock)
+  sections.push(preset.closingRules.trim())
+
+  return `\n${sections.join('\n\n')}\n`
+}
+
+// Kept for backwards compatibility; equivalent to the default preset.
+export const systemPrompt = buildScreenSystemPrompt(DEFAULT_PROMPT_PRESET)
 
 export const questionClassificationSystemPrompt = `You are a strict text classification assistant.
 Analyze the user's question and determine if it pertains to the visual screen/UI display or dynamic system state, vs. a general knowledge question.

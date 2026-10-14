@@ -2,7 +2,8 @@ import { desktopCapturer, type Display } from 'electron'
 import OpenAI from 'openai'
 import { VL_MODEL_ALIAS, ensureLocalVlmReady, getLocalVlmBaseUrl } from './localVlm'
 import { getTargetDisplay } from './overlay'
-import { generalSystemPrompt, questionClassificationSystemPrompt, systemPrompt } from './prompts'
+import { buildScreenSystemPrompt, generalSystemPrompt, questionClassificationSystemPrompt } from './prompts'
+import { getActivePromptPreset } from './promptStore'
 import { getAISettings, type AISettings } from './settings'
 
 // Placeholder the OpenAI client requires; the bundled llama-server ignores it.
@@ -426,6 +427,7 @@ export async function askAboutScreen(
   display?: Display
 ): Promise<ScreenAIResponse> {
   await ensureLocalVlmReady()
+  const preset = getActivePromptPreset()
   const imageUrl = await captureDisplay(display ?? getTargetDisplay(), region)
   const { client, model } = createLocalVlmClient()
 
@@ -442,12 +444,11 @@ export async function askAboutScreen(
           properties: {
             text: {
               type: 'string',
-              description: 'A concise spoken answer for the user.'
+              description: preset.textDescription
             },
             boxes: {
               type: 'array',
-              description:
-                'List of visual bounding boxes matching elements mentioned in text. Must not be empty if visual elements are identified.',
+              description: preset.boxesDescription,
               minItems: 1,
               items: {
                 type: 'object',
@@ -455,17 +456,15 @@ export async function askAboutScreen(
                 properties: {
                   label: {
                     type: 'string',
-                    description: 'A concise label for the highlighted region.'
+                    description: preset.labelDescription
                   },
                   copy: {
                     type: ['string', 'null'],
-                    description:
-                      'Exact raw extracted text from the region, or null if non-text object.'
+                    description: preset.copyDescription
                   },
                   bbox: {
                     type: 'array',
-                    description:
-                      'Bounding box coordinates normalized to 0-1000 grid: [xmin, ymin, xmax, ymax].',
+                    description: preset.bboxDescription,
                     items: {
                       type: 'number',
                       minimum: 0,
@@ -486,7 +485,7 @@ export async function askAboutScreen(
     messages: [
       {
         role: 'system',
-        content: `${systemPrompt}
+        content: `${buildScreenSystemPrompt(preset)}
 
 Prior messages in this conversation may or may not be related to the user's current request.
 Use prior messages to resolve references (such as "that", "it", or "the previous item") only if the request depends on them; otherwise, process the new request independently.
