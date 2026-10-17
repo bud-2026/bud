@@ -96,4 +96,7 @@ def tts_stream_endpoint(req: TTSRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=args.port, log_level="info")
+    # Pass the app object directly: the import-string form ("main:app") relies
+    # on `import main`, which fails in the PyInstaller bundle because the entry
+    # script is frozen as __main__ rather than an importable `main` module.
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
