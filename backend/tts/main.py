@@ -20,7 +20,7 @@ DEFAULT_VOICE = "jane"
 async def lifespan(app: FastAPI):
     global model, VOICE_STATES
     print("Loading Pocket-TTS model...", flush=True)
-    model = TTSModel.load_model()
+    model = TTSModel.load_model("english_18m_2026-10")
 
     print("Pre-caching voice states...", flush=True)
     for voice_name in [DEFAULT_VOICE, "alba"]:
