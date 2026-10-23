@@ -53,8 +53,6 @@ app = FastAPI(
 
 @app.get("/health")
 def health():
-    # Uvicorn only serves requests once the lifespan startup (model load)
-    # completes, so a responding /health implies the model is ready.
     return {"ok": model is not None}
 
 
@@ -63,19 +61,25 @@ class TTSRequest(BaseModel):
     voice: str = DEFAULT_VOICE
 
 
+def sanitize_text(text: str) -> str:
+    """Ensure text ends with valid punctuation so the TTS model hits its natural EOS token."""
+    cleaned = text.strip()
+    if cleaned and cleaned[-1] not in ".!?":
+        cleaned += "."
+    return cleaned
+
+
 # -------------------------------------------------------------------
 # 1. Non-Streaming Endpoint (Returns complete .wav file)
 # -------------------------------------------------------------------
 @app.post("/tts")
 def tts_endpoint(req: TTSRequest):
     try:
-        # Use cached state if available, otherwise fallback to on-demand lookup
         voice_state = VOICE_STATES.get(req.voice) or model.get_state_for_audio_prompt(req.voice)
+        final_text = sanitize_text(req.text)
 
-        # Generate complete audio tensor
-        audio_tensor = model.generate_audio(voice_state, req.text)
+        audio_tensor = model.generate_audio(voice_state, final_text)
 
-        # Write to WAV byte buffer
         buffer = io.BytesIO()
         scipy.io.wavfile.write(buffer, rate=model.sample_rate, data=audio_tensor.numpy())
         buffer.seek(0)
@@ -89,12 +93,10 @@ def tts_endpoint(req: TTSRequest):
 # 2. Streaming Endpoint (Streams raw little-endian float32 PCM)
 # -------------------------------------------------------------------
 def stream_pcm_audio(voice_state, text: str, stop: threading.Event):
-    # generate_audio_stream yields audio tensor chunks frame-by-frame. The
-    # renderer reinterprets the bytes as float32, so normalise the payload
-    # (CPU, contiguous, mono, float32) instead of assuming the model's dtype
-    # and memory layout.
+    final_text = sanitize_text(text)
     kwargs = {"stop": stop} if STREAM_SUPPORTS_STOP else {}
-    for chunk_tensor in model.generate_audio_stream(voice_state, text, **kwargs):
+
+    for chunk_tensor in model.generate_audio_stream(voice_state, final_text, **kwargs):
         samples = (
             chunk_tensor.detach()
             .to(device="cpu", dtype=torch.float32)
@@ -115,8 +117,6 @@ async def tts_stream_endpoint(req: TTSRequest, request: Request):
     stop = threading.Event()
 
     async def stop_on_disconnect() -> None:
-        # Abandoning a question should stop synthesis instead of finishing it
-        # in the background and competing with the next answer.
         while not stop.is_set():
             try:
                 if await request.is_disconnected():

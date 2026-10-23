@@ -7,7 +7,7 @@ import { getAISettings, type AISettings } from './settings'
 
 // Placeholder the OpenAI client requires; the bundled llama-server ignores it.
 const LOCAL_VLM_API_KEY = 'local'
-const screenCaptureMaxDimension = 1920
+const screenCaptureMaxDimension = 1000
 
 export interface AIRequest {
   prompt: string
@@ -363,10 +363,7 @@ export async function askQuestion(
 
 async function captureDisplay(display: Display, region?: Region): Promise<string> {
   const { width, height } = display.size
-  const maxDimension =
-    Number.isFinite(screenCaptureMaxDimension) && screenCaptureMaxDimension > 0
-      ? screenCaptureMaxDimension
-      : 1920
+  const maxDimension = screenCaptureMaxDimension
   const scale = Math.min(1, maxDimension / Math.max(width, height))
   const sources = await desktopCapturer.getSources({
     types: ['screen'],
@@ -376,6 +373,7 @@ async function captureDisplay(display: Display, region?: Region): Promise<string
     },
     fetchWindowIcons: false
   })
+
   const source =
     sources.find((candidate) => candidate.display_id === String(display.id)) ?? sources[0]
 
@@ -443,14 +441,9 @@ export async function askAboutScreen(
           type: 'object',
           additionalProperties: false,
           properties: {
-            text: {
-              type: 'string',
-              description: 'A concise spoken answer for the user.'
-            },
             boxes: {
               type: 'array',
-              description:
-                'List of visual bounding boxes matching elements mentioned in text. Must not be empty if visual elements are identified.',
+              description: 'List of bounding boxes matching elements with label and copy text.',
               minItems: 1,
               items: {
                 type: 'object',
@@ -460,15 +453,10 @@ export async function askAboutScreen(
                     type: 'string',
                     description: 'A concise label for the highlighted region.'
                   },
-                  copy: {
-                    type: ['string', 'null'],
-                    description:
-                      'Exact raw extracted text from the region, or null if non-text object.'
-                  },
                   bbox: {
                     type: 'array',
                     description:
-                      'Bounding box coordinates normalized to 0-1000 grid: [xmin, ymin, xmax, ymax].',
+                      'Bounding box coordinates normalized to 0-1000 scale: [xmin, ymin, xmax, ymax].',
                     items: {
                       type: 'number',
                       minimum: 0,
@@ -476,13 +464,22 @@ export async function askAboutScreen(
                     },
                     minItems: 4,
                     maxItems: 4
+                  },
+                  copy: {
+                    type: ['string', 'null'],
+                    description:
+                      'Exact raw extracted text from the region, or null if non-text object.'
                   }
                 },
                 required: ['label', 'copy', 'bbox']
               }
+            },
+            text: {
+              type: 'string',
+              description: 'A descriptive spoken answer for the user.'
             }
           },
-          required: ['text', 'boxes']
+          required: ['boxes', 'text']
         }
       }
     },

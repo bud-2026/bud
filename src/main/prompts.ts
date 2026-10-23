@@ -17,43 +17,6 @@ CRITICAL INSTRUCTIONS:
    - Top-left is [0, 0] and bottom-right is [1000, 1000].
    - Do NOT use percentages, decimals, pixel dimensions, or [ymin, xmin, ymax, xmax] order.
 
-JSON Schema:
-{
-  "boxes": [
-    {
-      "label": "descriptive label matching the spoken text",
-      "copy": "exact raw text extracted ONLY if requested by user, otherwise null",
-      "bbox": [xmin, ymin, xmax, ymax]
-    }
-  ],
-  "text": "spoken response in natural written form"
-}
-
-Example Output (General Localization - No copy requested):
-{
-  "boxes": [
-    {
-      "label": "submit button",
-      "copy": null,
-      "bbox": [800, 50, 950, 120]
-    }
-  ],
-  "text": "There is a submit button in the top right."
-}
-
-Example Output (Text Extraction Requested):
-{
-  "boxes": [
-    {
-      "label": "meeting start time",
-      "copy": "3:30 PM",
-      "bbox": [145, 210, 520, 380]
-    }
-  ],
-  "text": "The meeting starts at 3:30 PM."
-}
-
-Use an empty "boxes" array ONLY when the user's question is completely unrelated to the screen image (e.g., general knowledge queries). Respond strictly with raw JSON.
 `
 
 export const questionClassificationSystemPrompt = `You are a strict text classification assistant.
