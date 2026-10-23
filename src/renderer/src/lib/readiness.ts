@@ -56,7 +56,7 @@ export function computeReadiness(
   const vision = visionLevel(vlStatus)
   const speech = speechLevel(sttStatus)
   const tts = ttsLevel(ttsStatus)
-  const required = voiceEnabled ? [vision, speech, tts] : [vision]
+  const required = voiceEnabled ? [vision, speech, tts] : [vision, tts]
 
   let level: ReadinessLevel
   if (required.some((entry) => entry === 'error')) {
