@@ -14,6 +14,9 @@ const VOICE_HISTORY_MESSAGE_LIMIT = 20
 const TOOLBAR_EDGE_INSET = 8
 const TOOLBAR_STATE_STORAGE_KEY = 'bud-toolbar-state'
 const TOOLBAR_LEGACY_X_STORAGE_KEY = 'bud-toolbar-x'
+// Scheduling the first chunk slightly in the future absorbs IPC/scheduling
+// jitter instead of starting mid-buffer and clicking.
+const AUDIO_LEAD_IN_SECONDS = 0.15
 
 interface ToolbarState {
   edge: ToolbarEdge
@@ -353,6 +356,9 @@ function App(): React.JSX.Element {
 
   const audioContextRef = useRef<AudioContext | null>(null)
   const nextAudioTimeRef = useRef<number>(0)
+  const activeTtsRequestIdRef = useRef<string | null>(null)
+  const ttsSampleRateRef = useRef<number>(0)
+  const activeTtsSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set())
 
   useEffect(() => window.api.overlay.onDebugVisibilityChanged(setIsDebugOpen), [])
   useEffect(() => {
@@ -660,36 +666,76 @@ function App(): React.JSX.Element {
     ]
   )
   useEffect(() => {
-    const unsubscribeStart = window.api.tts.onStart(({ sampleRate, text }) => {
+    const stopScheduledAudio = (): void => {
+      for (const source of activeTtsSourcesRef.current) {
+        try {
+          source.stop()
+        } catch {
+          // Already stopped or never started.
+        }
+        source.disconnect()
+      }
+      activeTtsSourcesRef.current.clear()
+    }
+
+    const unsubscribeStart = window.api.tts.onStart(({ requestId, sampleRate, text }) => {
+      stopScheduledAudio()
+      activeTtsRequestIdRef.current = requestId
+      ttsSampleRateRef.current = sampleRate
       if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
       clearVoiceInactivityTimer()
       setCaptionText(text)
       setOrbState('responding')
       isSpeakingRef.current = true
-      audioContextRef.current ??= new AudioContext({ sampleRate })
-      void audioContextRef.current.resume()
-      nextAudioTimeRef.current = Math.max(
-        audioContextRef.current.currentTime,
-        nextAudioTimeRef.current
-      )
+
+      let context = audioContextRef.current
+      if (!context || context.state === 'closed') {
+        try {
+          context = new AudioContext({ sampleRate })
+        } catch {
+          context = new AudioContext()
+        }
+        audioContextRef.current = context
+      }
+      if (context.state === 'suspended') void context.resume()
+      nextAudioTimeRef.current = context.currentTime + AUDIO_LEAD_IN_SECONDS
     })
-    const unsubscribeChunk = window.api.tts.onChunk(({ chunk }) => {
+    const unsubscribeChunk = window.api.tts.onChunk(({ requestId, chunk }) => {
+      if (requestId !== activeTtsRequestIdRef.current) return
       const context = audioContextRef.current
       if (!context) return
 
-      const sampleCount = Math.floor(chunk.byteLength / Float32Array.BYTES_PER_ELEMENT)
+      const bytes =
+        chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength
+          ? chunk
+          : chunk.slice()
+      const sampleCount = Math.floor(bytes.byteLength / Float32Array.BYTES_PER_ELEMENT)
+      if (sampleCount === 0) return
+
       const samples = new Float32Array(sampleCount)
-      samples.set(new Float32Array(chunk.buffer, chunk.byteOffset, sampleCount))
-      const audioBuffer = context.createBuffer(1, sampleCount, context.sampleRate)
+      samples.set(new Float32Array(bytes.buffer, 0, sampleCount))
+      const audioBuffer = context.createBuffer(
+        1,
+        sampleCount,
+        ttsSampleRateRef.current || context.sampleRate
+      )
       audioBuffer.copyToChannel(samples, 0)
       const source = context.createBufferSource()
       source.buffer = audioBuffer
       source.connect(context.destination)
+      source.addEventListener('ended', () => {
+        activeTtsSourcesRef.current.delete(source)
+        source.disconnect()
+      })
+      activeTtsSourcesRef.current.add(source)
       const startTime = Math.max(context.currentTime, nextAudioTimeRef.current)
       source.start(startTime)
       nextAudioTimeRef.current = startTime + audioBuffer.duration
     })
-    const unsubscribeEnd = window.api.tts.onEnd(() => {
+    const unsubscribeEnd = window.api.tts.onEnd((requestId) => {
+      if (requestId !== activeTtsRequestIdRef.current) return
+      activeTtsRequestIdRef.current = null
+
       const context = audioContextRef.current
       const remainingAudioMs = context
         ? Math.max(0, (nextAudioTimeRef.current - context.currentTime) * 1000)
@@ -710,6 +756,8 @@ function App(): React.JSX.Element {
       }, remainingAudioMs)
     })
     const unsubscribeError = window.api.tts.onError((message) => {
+      activeTtsRequestIdRef.current = null
+      stopScheduledAudio()
       if (pendingBoxClearRef.current) {
         scheduleBoundingBoxClear()
         pendingBoxClearRef.current = false
@@ -724,10 +772,12 @@ function App(): React.JSX.Element {
       unsubscribeChunk()
       unsubscribeEnd()
       unsubscribeError()
+      stopScheduledAudio()
       if (orbHideTimerRef.current) clearTimeout(orbHideTimerRef.current)
       if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
       if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
       void audioContextRef.current?.close()
+      audioContextRef.current = null
     }
   }, [clearVoiceInactivityTimer, hideOrbWithAnimation, resetVoiceInactivityTimer, setOrbState])
 

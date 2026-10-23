@@ -1,12 +1,17 @@
 import argparse
+import asyncio
+import inspect
 import io
+import threading
+import torch
 import uvicorn
 import scipy.io.wavfile
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pocket_tts import TTSModel
+from starlette.concurrency import iterate_in_threadpool
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--port", type=int, default=0)
@@ -15,12 +20,21 @@ args = parser.parse_args()
 model = None
 VOICE_STATES = {}
 DEFAULT_VOICE = "jane"
+# Older pocket-tts releases cannot cancel an in-flight generation; newer ones
+# accept a `stop` event. Detected once the model is loaded.
+STREAM_SUPPORTS_STOP = False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model, VOICE_STATES
+    global model, VOICE_STATES, STREAM_SUPPORTS_STOP
     print("Loading Pocket-TTS model...", flush=True)
     model = TTSModel.load_model("english_18m_2026-10")
+
+    try:
+        parameters = inspect.signature(model.generate_audio_stream).parameters
+        STREAM_SUPPORTS_STOP = "stop" in parameters
+    except (TypeError, ValueError):
+        STREAM_SUPPORTS_STOP = False
 
     print("Pre-caching voice states...", flush=True)
     for voice_name in [DEFAULT_VOICE, "alba"]:
@@ -74,25 +88,67 @@ def tts_endpoint(req: TTSRequest):
 
 
 # -------------------------------------------------------------------
-# 2. Streaming Endpoint (Streams raw PCM audio chunks frame-by-frame)
+# 2. Streaming Endpoint (Streams raw little-endian float32 PCM)
 # -------------------------------------------------------------------
-def stream_pcm_audio(voice_state, text: str):
-    # generate_audio_stream yields audio tensor chunks frame-by-frame
-    for chunk_tensor in model.generate_audio_stream(voice_state, text):
-        yield chunk_tensor.numpy().tobytes()
+def stream_pcm_audio(voice_state, text: str, stop: threading.Event):
+    # generate_audio_stream yields audio tensor chunks frame-by-frame. The
+    # renderer reinterprets the bytes as float32, so normalise the payload
+    # (CPU, contiguous, mono, float32) instead of assuming the model's dtype
+    # and memory layout.
+    kwargs = {"stop": stop} if STREAM_SUPPORTS_STOP else {}
+    for chunk_tensor in model.generate_audio_stream(voice_state, text, **kwargs):
+        samples = (
+            chunk_tensor.detach()
+            .to(device="cpu", dtype=torch.float32)
+            .contiguous()
+            .reshape(-1)
+            .numpy()
+        )
+        yield samples.tobytes()
+
 
 @app.post("/tts-stream")
-def tts_stream_endpoint(req: TTSRequest):
+async def tts_stream_endpoint(req: TTSRequest, request: Request):
     try:
         voice_state = VOICE_STATES.get(req.voice) or model.get_state_for_audio_prompt(req.voice)
-
-        return StreamingResponse(
-            stream_pcm_audio(voice_state, req.text),
-            media_type="audio/pcm",
-            headers={"X-Sample-Rate": str(model.sample_rate)}
-        )
     except Exception as e:
         return Response(content=f"TTS Error: {str(e)}", status_code=500)
+
+    stop = threading.Event()
+
+    async def stop_on_disconnect() -> None:
+        # Abandoning a question should stop synthesis instead of finishing it
+        # in the background and competing with the next answer.
+        while not stop.is_set():
+            try:
+                if await request.is_disconnected():
+                    stop.set()
+                    return
+            except Exception:
+                return
+            await asyncio.sleep(0.25)
+
+    async def audio_chunks():
+        monitor = asyncio.create_task(stop_on_disconnect())
+        try:
+            async for chunk in iterate_in_threadpool(
+                stream_pcm_audio(voice_state, req.text, stop)
+            ):
+                yield chunk
+        finally:
+            stop.set()
+            monitor.cancel()
+
+    return StreamingResponse(
+        audio_chunks(),
+        media_type="audio/L32",
+        headers={
+            "X-Sample-Rate": str(model.sample_rate),
+            "X-Channels": "1",
+            "X-Sample-Format": "f32le",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 if __name__ == "__main__":

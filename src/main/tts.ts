@@ -113,12 +113,38 @@ async function waitForTtsReady(child: ChildProcess, port: number): Promise<void>
 }
 
 export function stopTTSBackend(): void {
+  stopTTSStream()
   isStoppingTts = true
   if (ttsProcess && !ttsProcess.killed) {
     ttsProcess.kill()
   }
   ttsProcess = undefined
   ttsBaseUrl = undefined
+}
+
+const FLOAT32_BYTES = 4
+
+interface ActiveStream {
+  controller: AbortController
+  requestId: string
+  webContents: Electron.WebContents
+}
+
+// Only one utterance may stream at a time: starting a new answer cancels the
+// previous stream so the renderer never receives interleaved audio.
+let activeStream: ActiveStream | undefined
+
+export function stopTTSStream(): void {
+  const current = activeStream
+  activeStream = undefined
+  if (!current) return
+
+  current.controller.abort()
+  // The aborted request will never reach its own 'tts:end'; tell the renderer
+  // so UI that waits on the end of playback (voice previews, the orb) resets.
+  if (!current.webContents.isDestroyed()) {
+    current.webContents.send('tts:end', { requestId: current.requestId })
+  }
 }
 
 export async function streamTTS(
@@ -128,39 +154,72 @@ export async function streamTTS(
   caption?: string
 ): Promise<void> {
   if (!ttsBaseUrl) throw new Error('TTS backend is not available')
+  stopTTSStream()
+
+  const controller = new AbortController()
   const requestId = randomUUID()
-  const response = await fetch(`${ttsBaseUrl}/tts-stream`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text, voice: voice ?? getTtsVoice() })
-  })
-
-  if (!response.ok || !response.body) {
-    throw new Error(`TTS backend returned HTTP ${response.status}`)
-  }
-
-  const sampleRateHeader = response.headers.get('x-sample-rate')
-  const sampleRate = Number(sampleRateHeader)
-  if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
-    throw new Error('TTS backend returned an invalid sample rate')
-  }
-
-  webContents.send('tts:start', { requestId, sampleRate, text: caption ?? text })
-  const reader = response.body.getReader()
+  const active: ActiveStream = { controller, requestId, webContents }
+  activeStream = active
 
   try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (value && value.byteLength > 0) {
-        webContents.send('tts:chunk', {
-          requestId,
-          chunk: Buffer.from(value)
-        })
-      }
+    const response = await fetch(`${ttsBaseUrl}/tts-stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, voice: voice ?? getTtsVoice() }),
+      signal: controller.signal
+    })
+
+    if (!response.ok || !response.body) {
+      throw new Error(`TTS backend returned HTTP ${response.status}`)
     }
-    webContents.send('tts:end', { requestId })
+
+    const sampleRateHeader = response.headers.get('x-sample-rate')
+    const sampleRate = Number(sampleRateHeader)
+    if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
+      throw new Error('TTS backend returned an invalid sample rate')
+    }
+
+    webContents.send('tts:start', { requestId, sampleRate, text: caption ?? text })
+    const reader = response.body.getReader()
+
+    // The body arrives in arbitrary byte ranges that do not line up with the
+    // backend's float32 frames. Forward only whole samples and carry the
+    // leftover bytes into the next read; a misaligned stream decodes as noise.
+    let pending = new Uint8Array(0)
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (!value || value.byteLength === 0) continue
+
+        const combined = new Uint8Array(pending.length + value.byteLength)
+        combined.set(pending, 0)
+        combined.set(value, pending.length)
+
+        const sampleCount = Math.floor(combined.byteLength / FLOAT32_BYTES)
+        if (sampleCount === 0) {
+          pending = combined
+          continue
+        }
+
+        const alignedLength = sampleCount * FLOAT32_BYTES
+        webContents.send('tts:chunk', { requestId, chunk: combined.slice(0, alignedLength) })
+        pending = combined.slice(alignedLength)
+      }
+
+      if (pending.length > 0) {
+        console.warn(`[tts] Dropping ${pending.length} trailing byte(s) of an incomplete sample`)
+      }
+      webContents.send('tts:end', { requestId })
+    } finally {
+      reader.releaseLock()
+    }
+  } catch (error) {
+    // A superseded request is expected to be aborted; do not surface it.
+    if (controller.signal.aborted) return
+    throw error
   } finally {
-    reader.releaseLock()
+    if (activeStream === active) activeStream = undefined
   }
 }
