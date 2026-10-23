@@ -201,6 +201,7 @@ async function classifyQuestion(
 
   const response = await client.chat.completions.create({
     model,
+    temperature: 0.0,
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -256,6 +257,7 @@ export async function askAI({ prompt, imageUrl }: AIRequest): Promise<string> {
 
   const response = await client.chat.completions.create({
     model,
+    temperature: 0.3,
     messages: [
       {
         role: 'system',
@@ -301,7 +303,7 @@ async function askGeneral(
 
   const response = await client.chat.completions.create({
     model,
-    // reasoning_effort only applies to the hosted reasoning models.
+    temperature: 0.3,
     ...(settings.generalUseLocal ? {} : { reasoning_effort: 'none' as const }),
     response_format: {
       type: 'json_schema',
@@ -431,6 +433,7 @@ export async function askAboutScreen(
 
   const response = await client.chat.completions.create({
     model,
+    temperature: 0,
     response_format: {
       type: 'json_schema',
       json_schema: {
