@@ -20,8 +20,6 @@ args = parser.parse_args()
 model = None
 VOICE_STATES = {}
 DEFAULT_VOICE = "jane"
-# Older pocket-tts releases cannot cancel an in-flight generation; newer ones
-# accept a `stop` event. Detected once the model is loaded.
 STREAM_SUPPORTS_STOP = False
 
 @asynccontextmanager
@@ -152,7 +150,4 @@ async def tts_stream_endpoint(req: TTSRequest, request: Request):
 
 
 if __name__ == "__main__":
-    # Pass the app object directly: the import-string form ("main:app") relies
-    # on `import main`, which fails in the PyInstaller bundle because the entry
-    # script is frozen as __main__ rather than an importable `main` module.
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")

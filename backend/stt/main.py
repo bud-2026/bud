@@ -258,9 +258,6 @@ def run() -> None:
                 should_end_conversation = is_stop_phrase(latest_text, stop_phrases)
                 emit("final", text=latest_text, end_session=should_end_conversation)
                 if should_end_conversation:
-                    # Leaving continuous mode on a stop phrase so the outer loop
-                    # returns to waiting for the wake word instead of immediately
-                    # starting another auto-listening session.
                     if auto_listen.is_set():
                         auto_listen.clear()
                     emit("conversation_ended")

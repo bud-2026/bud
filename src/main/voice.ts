@@ -14,6 +14,7 @@ let isStoppingVoice = false
 // always about the screen the user is looking at. Pre-answer events (orb,
 // status) follow the same window so the conversation does not jump screens.
 function sendVoiceEvent(event: VoiceBackendEvent): void {
+  console.log('Voice event:', event.event, event.text ?? event.message ?? '')
   if (event.event === 'wake_detected') {
     setVoiceWindow(getActiveOverlay())
   } else if (event.event === 'final' && !event.end_session) {
