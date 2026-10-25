@@ -7,23 +7,20 @@ export interface IndicatorProps {
   label?: string
   /** Raw text extracted from the bounding box to copy to clipboard. */
   copy?: string
-  /** Extra padding around the box, in 1000x1000 grid units. */
-  padding?: number
 }
 
 function Indicator({
   bbox,
   label = 'Object',
-  copy,
-  padding = 0
+  copy
 }: IndicatorProps): React.JSX.Element {
   const [xmin, ymin, xmax, ymax] = bbox
   const [copied, setCopied] = useState(false)
 
-  const left = Math.min(1000, Math.max(0, xmin - padding)) / 10
-  const top = Math.min(1000, Math.max(0, ymin - padding)) / 10
-  const right = Math.min(1000, Math.max(xmin, xmax + padding)) / 10
-  const bottom = Math.min(1000, Math.max(ymin, ymax + padding)) / 10
+  const left = Math.min(1000, Math.max(0, xmin)) / 10
+  const top = Math.min(1000, Math.max(0, ymin)) / 10
+  const right = Math.min(1000, Math.max(xmin, xmax)) / 10
+  const bottom = Math.min(1000, Math.max(ymin, ymax)) / 10
 
   const handleCopy = async (e: React.MouseEvent): Promise<void> => {
     if (!copy) return

@@ -120,7 +120,7 @@ def run() -> None:
 
     silence_timeout = 1.5
     minimum_transcription_time = 1.5
-    wake_threshold = 0.85
+    wake_threshold = 0.75
     wake_confirmation_frames = 5
     stop_phrases = {"thank you", "thanks", "stop", "that's all", "goodbye"}
     language = "en"

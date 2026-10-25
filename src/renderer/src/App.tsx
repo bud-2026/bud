@@ -141,7 +141,15 @@ function App(): React.JSX.Element {
   }, [setOrbState])
   const resetVoiceInactivityTimer = useCallback((): void => {
     if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
+    // The countdown only applies while Bud is idle-listening. Analyzing the
+    // request or speaking the answer is still part of the active conversation,
+    // so the timer must not run (and fire) during that work.
+    if (isLoadingRef.current || isSpeakingRef.current) {
+      voiceInactivityTimerRef.current = null
+      return
+    }
     voiceInactivityTimerRef.current = setTimeout(() => {
+      voiceInactivityTimerRef.current = null
       if (autoListenRef.current || !voiceEnabledRef.current) return
       voiceSessionActiveRef.current = false
       voiceSessionEndedRef.current = true
@@ -602,7 +610,7 @@ function App(): React.JSX.Element {
             hideOrbWithAnimation()
             return
           }
-          if (voiceInactivityTimerRef.current) clearTimeout(voiceInactivityTimerRef.current)
+          clearVoiceInactivityTimer()
           setOrbState('analyzing')
           setVoiceTranscript(userText)
           setQuestion(userText)
@@ -648,7 +656,6 @@ function App(): React.JSX.Element {
         if (event.event === 'wake_detected') {
           voiceSessionEndedRef.current = false
           voiceSessionActiveRef.current = true
-          resetVoiceInactivityTimer()
           if (!isLoadingRef.current && !isSpeakingRef.current) setOrbState('listening')
         } else if (event.event === 'transcribing' && !voiceSessionEndedRef.current) {
           voiceSessionActiveRef.current = true
@@ -787,6 +794,7 @@ function App(): React.JSX.Element {
 
       setIsLoading(true)
       isLoadingRef.current = true
+      clearVoiceInactivityTimer()
       setOrbState('analyzing')
       setError(null)
       if (boxesClearTimerRef.current) clearTimeout(boxesClearTimerRef.current)
@@ -811,7 +819,7 @@ function App(): React.JSX.Element {
         isLoadingRef.current = false
       }
     },
-    [setOrbState]
+    [clearVoiceInactivityTimer, setOrbState]
   )
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -832,7 +840,6 @@ function App(): React.JSX.Element {
 
   return (
     <main className="overlay" aria-label="Screen overlay">
-      {/* <VoiceOrb state="responding" /> */}
       {voiceOrbState !== 'hidden' && <VoiceOrb state={voiceOrbState} exiting={isOrbExiting} />}
       {isWriteAnswers && captionText && voiceOrbState === 'responding' && (
         <AnswerCaption text={captionText} exiting={isOrbExiting} />

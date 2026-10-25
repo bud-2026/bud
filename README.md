@@ -100,22 +100,30 @@ The key innovation is that Bud is **local-first and smart about where work happe
 
 ### How It Works
 
-```
-🎙️  "Hey Bud, what does this error mean?"
-        │  wake word + speech-to-text (openwakeword + Moonshine, local)
-        ▼
-🧠  Classifier (Qwen3-VL, local) ── screen? ──┐
-        │ general                            │ yes
-        ▼                                    ▼
-☁️  Nebius API (general answers)     🖥️  desktopCapturer + Qwen3-VL (local)
-        │                                    │  text + [xmin,ymin,xmax,ymax] boxes
-        └──────────────┬─────────────────────┘
-                       ▼  written answer (text)
-        🗣️  Separate TTS normalization pass ── (local Qwen3-VL or external model (e.g. through the Nebius API))
-        │  expands numbers, dates, units, and symbols into spoken form
-        ▼
-        🔊  Pocket-TTS streams normalized PCM → Web Audio (spoken answer)
-        🎯  Overlay draws bounding boxes + copy buttons
+```mermaid
+graph LR
+    %% Nodes
+    Input["🎙️ 'Hey Bud, do you know where this picture is taken from?'"]
+    STT["openwakeword + Moonshine, local\n(wake word + speech-to-text)"]
+    Classifier["🧠 Classifier (Qwen3-VL, local)"]
+    Nebius["☁️ Nemotron-3.5-Lightning - Nebius Token Factory\n(general answers)"]
+    DesktopCap["🖥️ desktopCapturer + Qwen3-VL 4B (local)\n(text + [xmin,ymin,xmax,ymax] boxes)"]
+    TTSNorm["🗣️ Separate TTS normalization pass\n(Nemotron-3.5-Lightning - Nebius Token Factory)\nexpands numbers, dates, units, and symbols"]
+    PocketTTS["🔊 Pocket-TTS streams\n(spoken answer)"]
+    Overlay["🎯 Overlay draws bounding boxes + copy buttons"]
+
+    %% Connections
+    Input --> STT
+    STT --> Classifier
+
+    Classifier -->|general| Nebius
+    Classifier -->|screen? yes| DesktopCap
+
+    Nebius --> TTSNorm
+    DesktopCap --> TTSNorm
+
+    TTSNorm --> PocketTTS
+    TTSNorm --> Overlay
 ```
 
 The spoken answer is **normalized in a separate pass** before it reaches the speech engine: once the router produces an answer, a dedicated TTS-formatting model rewrites it into speakable text (e.g. `10/13/2026` → "October thirteenth, twenty twenty-six"), so numbers, dates, units, and symbols are read correctly. This normalization step has its **own model configuration**: point it at the bundled local Qwen3-VL, or at an external OpenAI-compatible endpoint, independently of the general-answer model. If no normalization model is configured (or the request fails), Bud falls back to a built-in regex cleanup so speech is never blocked.

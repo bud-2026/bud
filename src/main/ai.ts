@@ -196,8 +196,9 @@ async function classifyQuestion(
   prompt: string,
   history: ScreenConversationMessage[]
 ): Promise<QuestionType> {
-  await ensureLocalVlmReady()
-  const { client, model } = createLocalVlmClient()
+  const settings = getAISettings()
+  if (settings.generalUseLocal) await ensureLocalVlmReady()
+  const { client, model } = createGeneralClient(settings)
 
   const response = await client.chat.completions.create({
     model,
@@ -237,6 +238,7 @@ Regardless of context, always return the exact same JSON object structure. Never
   })
 
   const rawContent = response.choices[0]?.message.content
+  console.log('Question classification raw content:', response)
 
   if (!rawContent) {
     throw new Error('AI failed to return content for question classification')
@@ -432,6 +434,7 @@ export async function askAboutScreen(
   const response = await client.chat.completions.create({
     model,
     temperature: 0,
+    max_tokens: 1000,
     response_format: {
       type: 'json_schema',
       json_schema: {
@@ -443,7 +446,8 @@ export async function askAboutScreen(
           properties: {
             boxes: {
               type: 'array',
-              description: 'List of bounding boxes matching elements with label and copy text.',
+              description:
+                'Information about visual elements detected on the screen, including their bounding boxes.',
               minItems: 1,
               items: {
                 type: 'object',
@@ -452,6 +456,11 @@ export async function askAboutScreen(
                   label: {
                     type: 'string',
                     description: 'A concise label for the highlighted region.'
+                  },
+                  intent: {
+                    type: 'string',
+                    description:
+                      'The inferred intent of the user query related to this bounding box, if applicable.'
                   },
                   bbox: {
                     type: 'array',
@@ -468,10 +477,10 @@ export async function askAboutScreen(
                   copy: {
                     type: ['string', 'null'],
                     description:
-                      'Exact raw extracted text from the region, or null if non-text object.'
+                      'Copyable text extracted from the bounding box, or null if no text is available.'
                   }
                 },
-                required: ['label', 'copy', 'bbox']
+                required: ['label', 'copy', 'bbox', 'intent']
               }
             },
             text: {
@@ -508,6 +517,7 @@ Regardless of context, always return the exact same JSON object structure. Never
   if (!content || typeof content !== 'string') {
     throw new Error('The AI returned an empty screen analysis response')
   }
+  console.log(content)
 
   const result = parseScreenResponse(content)
   return region ? { ...result, boxes: remapBoxesToScreen(result.boxes, region) } : result
