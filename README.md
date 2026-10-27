@@ -105,7 +105,7 @@ graph LR
     %% Nodes
     Input["🎙️ 'Hey Bud, do you know where this picture is taken from?'"]
     STT["openwakeword + Moonshine, local\n(wake word + speech-to-text)"]
-    Classifier["🧠 Classifier (Qwen3-VL, local)"]
+    Classifier["🧠 Classifier (Nemotron-3.5-Lightning - Nebius Token Factory)"]
     Nebius["☁️ Nemotron-3.5-Lightning - Nebius Token Factory\n(general answers)"]
     DesktopCap["🖥️ desktopCapturer + Qwen3-VL 4B (local)\n(text + [xmin,ymin,xmax,ymax] boxes)"]
     TTSNorm["🗣️ Separate TTS normalization pass\n(Nemotron-3.5-Lightning - Nebius Token Factory)\nexpands numbers, dates, units, and symbols"]

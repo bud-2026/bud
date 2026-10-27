@@ -238,7 +238,6 @@ Regardless of context, always return the exact same JSON object structure. Never
   })
 
   const rawContent = response.choices[0]?.message.content
-  console.log('Question classification raw content:', response)
 
   if (!rawContent) {
     throw new Error('AI failed to return content for question classification')
@@ -517,7 +516,6 @@ Regardless of context, always return the exact same JSON object structure. Never
   if (!content || typeof content !== 'string') {
     throw new Error('The AI returned an empty screen analysis response')
   }
-  console.log(content)
 
   const result = parseScreenResponse(content)
   return region ? { ...result, boxes: remapBoxesToScreen(result.boxes, region) } : result
