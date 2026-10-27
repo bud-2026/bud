@@ -14,25 +14,6 @@ Voice-Enabled Virtual Assistant with Screen Vision
 [![Hackathon Track](https://img.shields.io/badge/Track-Apps%20%26%20Agents%20Track-purple.svg)](<>)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[🌐 Live Demo](https://your-demo-link.com) | [📹 2-Min Video Pitch](https://youtube.com/watch?v=your-video) | [📄 Pitch Deck](https://slides.com/your-deck)
-
-</div>
-
----
-
-## 📽️ Demo & Video Preview
-
-<div align="center">
-
-<!-- DEMO VIDEO / GIF PLACEHOLDER -->
-
-### 🎥 Watch the 2-Minute Demo
-
-[![Watch the Video](docs/assets/video-thumbnail-placeholder.png)](https://user-images.githubusercontent.com/your-video-link-or-youtube)
-
-_Or animated preview:_
-<img src="docs/assets/demo.gif" alt="App Walkthrough" width="800">
-
 </div>
 
 ---
