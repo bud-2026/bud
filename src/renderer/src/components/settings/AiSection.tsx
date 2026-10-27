@@ -11,6 +11,10 @@ const EMPTY_SETTINGS: AISettings = {
   generalApiKey: '',
   generalModelId: '',
   generalUseLocal: false,
+  classificationBaseUrl: '',
+  classificationApiKey: '',
+  classificationModelId: '',
+  classificationUseLocal: false,
   phoneticBaseUrl: '',
   phoneticApiKey: '',
   phoneticModelId: '',
@@ -23,6 +27,10 @@ function areSettingsEqual(a: AISettings, b: AISettings): boolean {
     a.generalApiKey === b.generalApiKey &&
     a.generalModelId === b.generalModelId &&
     a.generalUseLocal === b.generalUseLocal &&
+    a.classificationBaseUrl === b.classificationBaseUrl &&
+    a.classificationApiKey === b.classificationApiKey &&
+    a.classificationModelId === b.classificationModelId &&
+    a.classificationUseLocal === b.classificationUseLocal &&
     a.phoneticBaseUrl === b.phoneticBaseUrl &&
     a.phoneticApiKey === b.phoneticApiKey &&
     a.phoneticModelId === b.phoneticModelId &&
@@ -118,6 +126,36 @@ function AiSection({ onError }: AiSectionProps): React.JSX.Element {
           onChange={(event) => updateSettings({ generalModelId: event.target.value })}
           placeholder="General model ID"
           disabled={isSavingSettings || aiSettings.generalUseLocal}
+        />
+      </div>
+      <div className="settings-group">
+        <div className="settings-group__head">
+          <span className="settings-heading">Question classification</span>
+          <Toggle
+            checked={aiSettings.classificationUseLocal}
+            onChange={(checked) => updateSettings({ classificationUseLocal: checked })}
+            label="Local model"
+            disabled={isSavingSettings}
+          />
+        </div>
+        <input
+          value={aiSettings.classificationBaseUrl}
+          onChange={(event) => updateSettings({ classificationBaseUrl: event.target.value })}
+          placeholder="Classification base URL"
+          disabled={isSavingSettings || aiSettings.classificationUseLocal}
+        />
+        <input
+          type="password"
+          value={aiSettings.classificationApiKey}
+          onChange={(event) => updateSettings({ classificationApiKey: event.target.value })}
+          placeholder="Classification API key"
+          disabled={isSavingSettings || aiSettings.classificationUseLocal}
+        />
+        <input
+          value={aiSettings.classificationModelId}
+          onChange={(event) => updateSettings({ classificationModelId: event.target.value })}
+          placeholder="Classification model ID"
+          disabled={isSavingSettings || aiSettings.classificationUseLocal}
         />
       </div>
       <div className="settings-group">

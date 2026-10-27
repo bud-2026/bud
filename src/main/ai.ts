@@ -7,7 +7,7 @@ import { getAISettings, type AISettings } from './settings'
 
 // Placeholder the OpenAI client requires; the bundled llama-server ignores it.
 const LOCAL_VLM_API_KEY = 'local'
-const screenCaptureMaxDimension = 1000
+const screenCaptureMaxDimension = 1500
 
 export interface AIRequest {
   prompt: string
@@ -58,6 +58,23 @@ export function createGeneralClient(settings: AISettings): { client: OpenAI; mod
   return {
     client: new OpenAI({ baseURL: settings.generalBaseUrl, apiKey: settings.generalApiKey }),
     model: settings.generalModelId
+  }
+}
+
+export function createClassificationClient(settings: AISettings): {
+  client: OpenAI
+  model: string
+} {
+  if (settings.classificationUseLocal) return createLocalVlmClient()
+  if (!settings.classificationBaseUrl) throw new Error('classification base URL is not configured')
+  if (!settings.classificationApiKey) throw new Error('classification API key is not configured')
+  if (!settings.classificationModelId) throw new Error('classification model ID is not configured')
+  return {
+    client: new OpenAI({
+      baseURL: settings.classificationBaseUrl,
+      apiKey: settings.classificationApiKey
+    }),
+    model: settings.classificationModelId
   }
 }
 
@@ -197,12 +214,13 @@ async function classifyQuestion(
   history: ScreenConversationMessage[]
 ): Promise<QuestionType> {
   const settings = getAISettings()
-  if (settings.generalUseLocal) await ensureLocalVlmReady()
-  const { client, model } = createGeneralClient(settings)
+  if (settings.classificationUseLocal) await ensureLocalVlmReady()
+  const { client, model } = createClassificationClient(settings)
 
   const response = await client.chat.completions.create({
     model,
     temperature: 0.0,
+    ...(settings.classificationUseLocal ? {} : { reasoning_effort: 'none' as const }),
     response_format: {
       type: 'json_schema',
       json_schema: {

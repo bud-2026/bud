@@ -10,6 +10,10 @@ export interface AISettings {
   generalApiKey: string
   generalModelId: string
   generalUseLocal: boolean
+  classificationBaseUrl: string
+  classificationApiKey: string
+  classificationModelId: string
+  classificationUseLocal: boolean
   phoneticBaseUrl: string
   phoneticApiKey: string
   phoneticModelId: string
@@ -49,50 +53,71 @@ function writeSetting(key: string, value: unknown): void {
   )
 }
 
-// Screen analysis and classification always run on the bundled Qwen3-VL
-// server; only general knowledge questions are user-configurable (Nebius API).
+function pickString(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function pickBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+// Question classification can run on its own endpoint or the bundled local
+// model. When it has never been configured, it inherits the general settings so
+// existing installations keep classifying with the same provider as before.
 export function getAISettings(): AISettings {
-  const defaults: AISettings = {
+  const generalDefaults = {
     generalBaseUrl: process.env.GENERAL_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     generalApiKey: process.env.GENERAL_API_KEY ?? '',
     generalModelId: process.env.GENERAL_MODEL_ID ?? '',
-    generalUseLocal: process.env.GENERAL_USE_LOCAL === 'true',
+    generalUseLocal: process.env.GENERAL_USE_LOCAL === 'true'
+  }
+  const phoneticDefaults = {
     phoneticBaseUrl: process.env.PHONETIC_BASE_URL ?? '',
     phoneticApiKey: process.env.PHONETIC_API_KEY ?? '',
     phoneticModelId: process.env.PHONETIC_MODEL_ID ?? '',
     phoneticUseLocal: process.env.PHONETIC_USE_LOCAL === 'true'
   }
 
-  try {
-    const stored = JSON.parse(readFileSync(getAISettingsPath(), 'utf8')) as Partial<AISettings>
-    return {
-      generalBaseUrl:
-        typeof stored.generalBaseUrl === 'string' ? stored.generalBaseUrl : defaults.generalBaseUrl,
-      generalApiKey:
-        typeof stored.generalApiKey === 'string' ? stored.generalApiKey : defaults.generalApiKey,
-      generalModelId:
-        typeof stored.generalModelId === 'string' ? stored.generalModelId : defaults.generalModelId,
-      generalUseLocal:
-        typeof stored.generalUseLocal === 'boolean'
-          ? stored.generalUseLocal
-          : defaults.generalUseLocal,
-      phoneticBaseUrl:
-        typeof stored.phoneticBaseUrl === 'string'
-          ? stored.phoneticBaseUrl
-          : defaults.phoneticBaseUrl,
-      phoneticApiKey:
-        typeof stored.phoneticApiKey === 'string' ? stored.phoneticApiKey : defaults.phoneticApiKey,
-      phoneticModelId:
-        typeof stored.phoneticModelId === 'string'
-          ? stored.phoneticModelId
-          : defaults.phoneticModelId,
-      phoneticUseLocal:
-        typeof stored.phoneticUseLocal === 'boolean'
-          ? stored.phoneticUseLocal
-          : defaults.phoneticUseLocal
-    }
-  } catch {
-    return defaults
+  const stored = readStoredSettings()
+
+  const general = {
+    generalBaseUrl: pickString(stored.generalBaseUrl, generalDefaults.generalBaseUrl),
+    generalApiKey: pickString(stored.generalApiKey, generalDefaults.generalApiKey),
+    generalModelId: pickString(stored.generalModelId, generalDefaults.generalModelId),
+    generalUseLocal: pickBoolean(stored.generalUseLocal, generalDefaults.generalUseLocal)
+  }
+
+  const classificationDefaults = {
+    classificationBaseUrl: process.env.CLASSIFICATION_BASE_URL || general.generalBaseUrl,
+    classificationApiKey: process.env.CLASSIFICATION_API_KEY || general.generalApiKey,
+    classificationModelId: process.env.CLASSIFICATION_MODEL_ID || general.generalModelId,
+    classificationUseLocal: process.env.CLASSIFICATION_USE_LOCAL
+      ? process.env.CLASSIFICATION_USE_LOCAL === 'true'
+      : general.generalUseLocal
+  }
+
+  return {
+    ...general,
+    classificationBaseUrl: pickString(
+      stored.classificationBaseUrl,
+      classificationDefaults.classificationBaseUrl
+    ),
+    classificationApiKey: pickString(
+      stored.classificationApiKey,
+      classificationDefaults.classificationApiKey
+    ),
+    classificationModelId: pickString(
+      stored.classificationModelId,
+      classificationDefaults.classificationModelId
+    ),
+    classificationUseLocal: pickBoolean(
+      stored.classificationUseLocal,
+      classificationDefaults.classificationUseLocal
+    ),
+    phoneticBaseUrl: pickString(stored.phoneticBaseUrl, phoneticDefaults.phoneticBaseUrl),
+    phoneticApiKey: pickString(stored.phoneticApiKey, phoneticDefaults.phoneticApiKey),
+    phoneticModelId: pickString(stored.phoneticModelId, phoneticDefaults.phoneticModelId),
+    phoneticUseLocal: pickBoolean(stored.phoneticUseLocal, phoneticDefaults.phoneticUseLocal)
   }
 }
 
@@ -150,7 +175,7 @@ export function saveGuideSeen(seen: boolean): void {
 }
 
 // Drops settings that are no longer user-configurable now that screen analysis
-// and classification always use the bundled Qwen3-VL server.
+// always uses the bundled Qwen3-VL server.
 export function migrateLegacyAISettings(): void {
   const settingsPath = getAISettingsPath()
   if (!existsSync(settingsPath)) return
@@ -159,14 +184,7 @@ export function migrateLegacyAISettings(): void {
     const stored = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>
     let changed = false
 
-    for (const key of [
-      'baseUrl',
-      'apiKey',
-      'modelId',
-      'classificationBaseUrl',
-      'classificationApiKey',
-      'classificationModelId'
-    ]) {
+    for (const key of ['baseUrl', 'apiKey', 'modelId']) {
       if (key in stored) {
         delete stored[key]
         changed = true

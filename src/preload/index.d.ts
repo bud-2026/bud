@@ -31,6 +31,10 @@ declare global {
     generalApiKey: string
     generalModelId: string
     generalUseLocal: boolean
+    classificationBaseUrl: string
+    classificationApiKey: string
+    classificationModelId: string
+    classificationUseLocal: boolean
     phoneticBaseUrl: string
     phoneticApiKey: string
     phoneticModelId: string

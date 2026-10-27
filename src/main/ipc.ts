@@ -285,6 +285,38 @@ export function registerIpcHandlers(): void {
       assertHttpUrl(trimmedGeneralBaseUrl, 'AI base URLs must be valid HTTP or HTTPS URLs')
     }
 
+    const classificationUseLocal =
+      'classificationUseLocal' in settings ? settings.classificationUseLocal : undefined
+    if (classificationUseLocal !== undefined && typeof classificationUseLocal !== 'boolean') {
+      throw new Error('Classification use-local flag must be a boolean')
+    }
+    const useLocalForClassification = classificationUseLocal === true
+
+    if (
+      !useLocalForClassification &&
+      (!('classificationBaseUrl' in settings) ||
+        typeof settings.classificationBaseUrl !== 'string' ||
+        !settings.classificationBaseUrl.trim() ||
+        !('classificationApiKey' in settings) ||
+        typeof settings.classificationApiKey !== 'string' ||
+        !settings.classificationApiKey.trim() ||
+        !('classificationModelId' in settings) ||
+        typeof settings.classificationModelId !== 'string' ||
+        !settings.classificationModelId.trim())
+    ) {
+      throw new Error('Classification settings require a base URL, API key, and model ID')
+    }
+
+    const trimmedClassificationBaseUrl = trim(
+      'classificationBaseUrl' in settings ? settings.classificationBaseUrl : ''
+    )
+    if (!useLocalForClassification) {
+      assertHttpUrl(
+        trimmedClassificationBaseUrl,
+        'Classification base URL must be a valid HTTP or HTTPS URL'
+      )
+    }
+
     const phoneticBaseUrl = 'phoneticBaseUrl' in settings ? settings.phoneticBaseUrl : undefined
     if (phoneticBaseUrl !== undefined && typeof phoneticBaseUrl !== 'string') {
       throw new Error('Phonetic base URL must be a string')
@@ -308,6 +340,14 @@ export function registerIpcHandlers(): void {
       generalApiKey: trim('generalApiKey' in settings ? settings.generalApiKey : ''),
       generalModelId: trim('generalModelId' in settings ? settings.generalModelId : ''),
       generalUseLocal: useLocalForGeneral,
+      classificationBaseUrl: trimmedClassificationBaseUrl,
+      classificationApiKey: trim(
+        'classificationApiKey' in settings ? settings.classificationApiKey : ''
+      ),
+      classificationModelId: trim(
+        'classificationModelId' in settings ? settings.classificationModelId : ''
+      ),
+      classificationUseLocal: useLocalForClassification,
       phoneticBaseUrl: trimmedPhoneticBaseUrl,
       phoneticApiKey: typeof phoneticApiKey === 'string' ? phoneticApiKey.trim() : '',
       phoneticModelId: typeof phoneticModelId === 'string' ? phoneticModelId.trim() : '',

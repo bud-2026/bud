@@ -61,9 +61,9 @@ People work across dozens of windows, tabs, and documents, yet the information t
 
 The key innovation is that Bud is **local-first and smart about where work happens**:
 
-- **Screen understanding and question classification run entirely on-device** on a bundled **Qwen3-VL-4B** vision-language model served by **llama.cpp on the GPU**, and your screen never has to leave your machine for visual tasks.
+- **Screen understanding runs entirely on-device** on a bundled **Qwen3-VL-4B** vision-language model served by **llama.cpp on the GPU**, and your screen never has to leave your machine for visual tasks.
 - **Only general-knowledge questions are routed to the cloud** (a configurable Nebius model), so the common case stays fast and private.
-- A lightweight **classifier decides between the two paths automatically** and defaults to screen context whenever the question is ambiguous.
+- A lightweight **classifier decides between the two paths automatically** — locally or via its own configurable endpoint — and defaults to screen context whenever the question is ambiguous.
 - Everything is **provisioned on first run**: runtime, model weights, and speech models are downloaded automatically and started on free local ports, so there is no manual model setup.
 
 ---
@@ -72,7 +72,7 @@ The key innovation is that Bud is **local-first and smart about where work happe
 
 - 🎙️ **Wake-word voice control:** Hands-free "Hey Bud" activation with confirmation-buffered detection, plus natural stop phrases ("stop", "thanks", "that's all", "goodbye") to end a conversation.
 - 👁️ **On-device screen vision:** A bundled Qwen3-VL-4B model (GGUF, CUDA) reads the screen and grounds answers with bounding boxes; no screenshots are sent to the cloud.
-- 🧠 **Smart router (screen vs. general):** A local classifier sends visual and system-state questions to the vision model and pure trivia to the Nebius cloud model.
+- 🧠 **Smart router (screen vs. general):** A lightweight classifier sends visual and system-state questions to the vision model and pure trivia to the Nebius cloud model; it can run on the bundled local model or its own endpoint.
 - 🎯 **Visual grounding & copy:** Highlighted indicators point at the elements Bud mentions; when you ask it to read or extract text, a one-click **Copy** button puts the exact raw text on your clipboard.
 - 🖱️ **Focus on a region:** Drag a box to confine Bud to part of the screen, then auto-listen in that area. Clear it with Esc or the × control.
 - 🗣️ **Low-latency streaming speech:** Answer text is normalized in a **separate pass** by a dedicated TTS-formatting model (local Qwen3-VL or an external endpoint) that expands numbers, dates, units, and symbols into spoken form; Pocket-TTS then streams raw PCM chunks over HTTP and the renderer schedules them through Web Audio for smooth, gapless playback.
@@ -185,6 +185,15 @@ GENERAL_API_KEY=your_general_api_key
 GENERAL_MODEL_ID=your_general_model_id
 ```
 
+Optionally configure question classification separately. Leave these blank to reuse the general settings above, or set `CLASSIFICATION_USE_LOCAL=true` to classify on the bundled local model:
+
+```env
+CLASSIFICATION_BASE_URL=
+CLASSIFICATION_API_KEY=
+CLASSIFICATION_MODEL_ID=
+CLASSIFICATION_USE_LOCAL=
+```
+
 Optionally configure the separate TTS normalization pass (see **How It Works**). Leave these blank to skip the extra model call and use the built-in regex cleanup, or set `PHONETIC_USE_LOCAL=true` to run it on the bundled local model:
 
 ```env
@@ -194,7 +203,7 @@ PHONETIC_MODEL_ID=
 PHONETIC_USE_LOCAL=false
 ```
 
-> Screen analysis and question classification always run on the bundled local Qwen3-VL server; no key is needed for those.
+> Screen analysis always runs on the bundled local Qwen3-VL server; no key is needed for that.
 
 ### 3. Prepare the Backends (Windows, one time)
 
@@ -228,17 +237,21 @@ pnpm run build:unpack  # unpacked build for quick testing
 
 ### Configuration Reference
 
-| Variable             | Purpose                                           | Default                                   |
-| -------------------- | ------------------------------------------------- | ----------------------------------------- |
-| `GENERAL_BASE_URL`   | OpenAI-compatible base URL for general knowledge  | `https://api.tokenfactory.nebius.com/v1/` |
-| `GENERAL_API_KEY`    | API key for the general model                     | (none)                                    |
-| `GENERAL_MODEL_ID`   | Model ID used for general answers                 | (none)                                    |
-| `PHONETIC_BASE_URL`  | Base URL for the separate TTS normalization model | (none) (regex fallback)                   |
-| `PHONETIC_API_KEY`   | API key for the TTS normalization model           | (none)                                    |
-| `PHONETIC_MODEL_ID`  | Model ID for the TTS normalization pass           | (none)                                    |
-| `PHONETIC_USE_LOCAL` | Run TTS normalization on the bundled local model  | `false`                                   |
+| Variable                   | Purpose                                           | Default                                   |
+| -------------------------- | ------------------------------------------------- | ----------------------------------------- |
+| `GENERAL_BASE_URL`         | OpenAI-compatible base URL for general knowledge  | `https://api.tokenfactory.nebius.com/v1/` |
+| `GENERAL_API_KEY`          | API key for the general model                     | (none)                                    |
+| `GENERAL_MODEL_ID`         | Model ID used for general answers                 | (none)                                    |
+| `CLASSIFICATION_BASE_URL`  | Base URL for the question classifier              | (general settings)                        |
+| `CLASSIFICATION_API_KEY`   | API key for the question classifier               | (general settings)                        |
+| `CLASSIFICATION_MODEL_ID`  | Model ID for the question classifier              | (general settings)                        |
+| `CLASSIFICATION_USE_LOCAL` | Run classification on the bundled local model     | (general settings)                        |
+| `PHONETIC_BASE_URL`        | Base URL for the separate TTS normalization model | (none) (regex fallback)                   |
+| `PHONETIC_API_KEY`         | API key for the TTS normalization model           | (none)                                    |
+| `PHONETIC_MODEL_ID`        | Model ID for the TTS normalization pass           | (none)                                    |
+| `PHONETIC_USE_LOCAL`       | Run TTS normalization on the bundled local model  | `false`                                   |
 
-General settings and the TTS normalization model can also be changed at runtime under **Settings → AI** (the "General" and "Phonetic formatting" groups), which persists them to `ai-settings.json` in the app's user-data folder.
+General settings, question classification, and the TTS normalization model can also be changed at runtime under **Settings → AI** (the "General responses", "Question classification", and "Phonetic formatting" groups), which persists them to `ai-settings.json` in the app's user-data folder.
 
 ### Using Bud
 
