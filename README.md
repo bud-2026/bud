@@ -3,6 +3,7 @@
 <div align="center">
 
 <!-- LOGO PLACEHOLDER -->
+
 <a href="https://github.com/your-username/your-repo-name">
   <img src="resources/icon.png" alt="Bud Logo" width="120" height="120">
 </a>
@@ -22,9 +23,9 @@ Voice-Enabled Virtual Assistant with Screen Vision
 
 <div align="center">
 
-|                           Main Interface                           |                    Feature Highlight / Mobile View                    |
-| :----------------------------------------------------------------: | :-------------------------------------------------------------------: |
-| <img src="docs/assets/screenshot-1.png" alt="Main UI" width="400"> | <img src="docs/assets/screenshot-2.png" alt="Feature UI" width="400"> |
+|                                                         |                                                            |
+| :-----------------------------------------------------: | :--------------------------------------------------------: |
+| <img src="assets/image1.jpg" alt="Main UI" width="400"> | <img src="assets/image2.jpg" alt="Feature UI" width="400"> |
 
 </div>
 
