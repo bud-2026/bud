@@ -21,13 +21,8 @@ Voice-Enabled Virtual Assistant with Screen Vision
 
 ## 📸 Screenshots
 
-<div align="center">
-
-|                                                         |                                                            |
-| :-----------------------------------------------------: | :--------------------------------------------------------: |
-| <img src="assets/image1.jpg" alt="Main UI" width="400"> | <img src="assets/image2.jpg" alt="Feature UI" width="400"> |
-
-</div>
+<img src="assets/image1.jpg" alt="Main UI" width="800">
+<img src="assets/image2.jpg" alt="Feature UI" width="800">
 
 ---
 
