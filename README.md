@@ -26,13 +26,7 @@ Voice-Enabled Virtual Assistant with Screen Vision
 
 ---
 
-## 💡 The Problem & Our Solution
-
-### ❌ The Problem
-
-People work across dozens of windows, tabs, and documents, yet the information they need is usually _on the screen in front of them_. Getting help with it still means stopping what they are doing: switching to another app, describing what they see out loud, or copying text by hand. General voice assistants can answer trivia but are **blind to the screen**, and screenshot-to-cloud tools trade away **privacy and latency**. This excludes exactly the users who need help most: people working hands-free, on a call, away from the keyboard, or relying on assistive technology.
-
-### ✨ Our Solution
+# Introduction
 
 **Bud** is a voice-first assistant that lives as a translucent overlay on top of the desktop and _sees what you see_. Say **"Hey Bud"**, ask a question naturally, and Bud answers out loud and draws a box around the exact element it is describing.
 
@@ -42,6 +36,14 @@ The key innovation is that Bud is **local-first and smart about where work happe
 - **Only general-knowledge questions are routed to the cloud** (a configurable Nebius model), so the common case stays fast and private.
 - A lightweight **classifier decides between the two paths automatically** — locally or via its own configurable endpoint — and defaults to screen context whenever the question is ambiguous.
 - Everything is **provisioned on first run**: runtime, model weights, and speech models are downloaded automatically and started on free local ports, so there is no manual model setup.
+
+### Using Bud
+
+- **Voice:** Say **"Hey Bud"**, then ask your question. End a conversation with a stop phrase ("stop", "thanks", "that's all", "goodbye") or press Esc.
+- **Toolbar:** Move the cursor toward the screen edge to reveal it; drag the grip dots to re-dock it to any edge.
+- **Select an area:** Click the select button, drag a box, and Bud focuses (and auto-listens) there. Clear it with Esc or the × button.
+- **Type instead:** Use the ask button in the toolbar, or the question field under **Settings → Debug**.
+- **Shortcut:** `Ctrl+Shift+Space` toggles the settings panel.
 
 ---
 
@@ -107,23 +109,6 @@ The spoken answer is **normalized in a separate pass** before it reaches the spe
 
 All capture and inference for screen questions stay on the machine; only general-knowledge prompts reach the network. The always-on-top overlay sets content protection so Bud is excluded from its own screen captures.
 
-### Project Structure
-
-```
-bud/
-├── src/
-│   ├── main/            # Electron main: window, IPC, capture, AI routing, backends
-│   │   ├── index.ts     # App lifecycle, STT/TTS process control, prompts, IPC
-│   │   ├── localVlm.ts  # Provision + launch the bundled llama.cpp Qwen3-VL server
-│   │   └── freePort.ts  # Picks a free local port per backend
-│   ├── preload/         # contextBridge API surface (window.api)
-│   └── renderer/        # React overlay UI (toolbar, orb, indicators, settings, guide)
-├── backend/
-│   ├── stt/             # Python wake word + speech-to-text worker (JSON event stream)
-│   └── tts/             # Python Pocket-TTS FastAPI server (streaming PCM)
-└── scripts/             # prepare_backends.py (venv + PyInstaller staging)
-```
-
 ---
 
 ## 🏃 Quick Start (Run Locally in 2 Minutes)
@@ -143,8 +128,8 @@ Follow these simple steps to run the project locally for testing during evaluati
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
+git clone https://github.com/bud-2026/bud.git
+cd bud
 
 # Install dependencies
 pnpm install
@@ -229,11 +214,3 @@ pnpm run build:unpack  # unpacked build for quick testing
 | `PHONETIC_USE_LOCAL`       | Run TTS normalization on the bundled local model  | `false`                                   |
 
 General settings, question classification, and the TTS normalization model can also be changed at runtime under **Settings → AI** (the "General responses", "Question classification", and "Phonetic formatting" groups), which persists them to `ai-settings.json` in the app's user-data folder.
-
-### Using Bud
-
-- **Voice:** Say **"Hey Bud"**, then ask your question. End a conversation with a stop phrase ("stop", "thanks", "that's all", "goodbye") or press Esc.
-- **Toolbar:** Move the cursor toward the screen edge to reveal it; drag the grip dots to re-dock it to any edge.
-- **Select an area:** Click the select button, drag a box, and Bud focuses (and auto-listens) there. Clear it with Esc or the × button.
-- **Type instead:** Use the ask button in the toolbar, or the question field under **Settings → Debug**.
-- **Shortcut:** `Ctrl+Shift+Space` toggles the settings panel.
