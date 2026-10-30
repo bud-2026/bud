@@ -68,13 +68,13 @@ export function getAISettings(): AISettings {
   const generalDefaults = {
     generalBaseUrl: process.env.GENERAL_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     generalApiKey: process.env.GENERAL_API_KEY ?? '',
-    generalModelId: process.env.GENERAL_MODEL_ID ?? '',
+    generalModelId: process.env.GENERAL_MODEL_ID ?? 'nvidia/Nemotron-3_5-Lightning',
     generalUseLocal: process.env.GENERAL_USE_LOCAL === 'true'
   }
   const phoneticDefaults = {
-    phoneticBaseUrl: process.env.PHONETIC_BASE_URL ?? '',
+    phoneticBaseUrl: process.env.PHONETIC_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/',
     phoneticApiKey: process.env.PHONETIC_API_KEY ?? '',
-    phoneticModelId: process.env.PHONETIC_MODEL_ID ?? '',
+    phoneticModelId: process.env.PHONETIC_MODEL_ID ?? 'nvidia/Nemotron-3_5-Lightning',
     phoneticUseLocal: process.env.PHONETIC_USE_LOCAL === 'true'
   }
 

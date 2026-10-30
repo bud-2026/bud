@@ -89,6 +89,14 @@ const STEPS: GuideStep[] = [
     placement: 'auto',
     panel: 'open'
   },
+    {
+    id: 'ai-settings',
+    title: 'AI Settings preparation',
+    body: 'Before starting, set the API credentials for the AI model.',
+    target: '.settings-card:nth-of-type(3)',
+    placement: 'auto',
+    panel: 'open'
+  },
   {
     id: 'done',
     title: 'You are all set!',
